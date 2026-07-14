@@ -1,5 +1,6 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { ChevronDown, ChevronLeft } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getTaskForLanguage, tasksByLevel, type WorkbookLevel, type Task } from "@/data/tasks";
 import { useSettings } from "@/lib/settings";
@@ -764,22 +765,6 @@ function TaskDetailPage() {
             {beforeAfterOn && (
               <BeforeAfterCard text={correctionCtx.userText || text} cards={correctionCtx.cards} />
             )}
-            {settings.showProgress && isPluginEnabled("your-progress") && (
-              <ProgressCard history={progressHistory} />
-            )}
-            {settings.showTimer && isPluginEnabled("task-timer") && (
-              <TimerCard initialElapsed={timerElapsed} onElapsedChange={setTimerElapsed} />
-            )}
-            {aiChatOn && (
-              <AIChatCard initialMessages={chatHistory} onMessagesChange={setChatHistory} />
-            )}
-            {vocabularyBuilderOn && (
-              <VocabularyBuilderCard
-                cards={cards.status === "done" ? cards.cards : []}
-                taskId={activeTaskId}
-              />
-            )}
-            {vimSupportOn && <VimSupportCard mode={vimMode} />}
           </div>
         </div>
 
@@ -794,6 +779,22 @@ function TaskDetailPage() {
               currentText={text}
             />
           )}
+          {settings.showProgress && isPluginEnabled("your-progress") && (
+            <ProgressCard history={progressHistory} />
+          )}
+          {settings.showTimer && isPluginEnabled("task-timer") && (
+            <TimerCard initialElapsed={timerElapsed} onElapsedChange={setTimerElapsed} />
+          )}
+          {aiChatOn && (
+            <AIChatCard initialMessages={chatHistory} onMessagesChange={setChatHistory} />
+          )}
+          {vocabularyBuilderOn && (
+            <VocabularyBuilderCard
+              cards={cards.status === "done" ? cards.cards : []}
+              taskId={activeTaskId}
+            />
+          )}
+          {vimSupportOn && <VimSupportCard mode={vimMode} />}
         </aside>
       </div>
     </div>
@@ -896,6 +897,18 @@ function CorrectionProgressBar({
   );
 }
 
+function FoldIndicator({ open }: { open: boolean }) {
+  const Icon = open ? ChevronDown : ChevronLeft;
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-border bg-[#3a3a3a] text-white shadow-sm"
+    >
+      <Icon className="h-4 w-4" strokeWidth={2.4} />
+    </span>
+  );
+}
+
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   const { t } = useLang();
   const [open, setOpen] = useState(true);
@@ -907,9 +920,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
         className="flex w-full items-center justify-between border-b border-border px-4 py-2.5 text-left text-sm font-semibold text-foreground"
       >
         <span>{t(title)}</span>
-        <span aria-hidden="true" className="text-muted-foreground">
-          {open ? "▾" : "▸"}
-        </span>
+        <FoldIndicator open={open} />
       </button>
       {open && <div className="px-4 py-4">{children}</div>}
     </div>
@@ -1453,9 +1464,7 @@ function CorrectionCardsBlock({
               {countLabel}
             </span>
           )}
-          <span aria-hidden="true" className="text-muted-foreground">
-            {open ? "▾" : "▸"}
-          </span>
+          <FoldIndicator open={open} />
         </span>
       </button>
 
@@ -1897,9 +1906,7 @@ function AIChatCard({
         style={{ borderColor: "#e0e0e0" }}
       >
         <span>{t("AI Chat")}</span>
-        <span aria-hidden="true" className="text-muted-foreground">
-          {open ? "▾" : "▸"}
-        </span>
+        <FoldIndicator open={open} />
       </button>
       {open && (
         <>
@@ -2050,9 +2057,7 @@ function AiFeedbackCard({
               </span>
             </span>
           )}
-          <span aria-hidden="true" className="text-muted-foreground">
-            {open ? "▾" : "▸"}
-          </span>
+          <FoldIndicator open={open} />
         </span>
       </button>
       {open && (

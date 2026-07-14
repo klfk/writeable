@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bookmark, BookmarkCheck, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Bookmark, BookmarkCheck, Trash2, ChevronDown, ChevronLeft, ChevronUp } from "lucide-react";
 import type { CorrectionCard } from "@/lib/check.functions";
 import { T } from "@/lib/useAutoT";
 
@@ -13,6 +13,18 @@ export type VocabBankEntry = {
 };
 
 const BANK_KEY = "vocab_bank_v1";
+
+function FoldIndicator({ open }: { open: boolean }) {
+  const Icon = open ? ChevronDown : ChevronLeft;
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-border bg-[#3a3a3a] text-white shadow-sm"
+    >
+      <Icon className="h-4 w-4" strokeWidth={2.4} />
+    </span>
+  );
+}
 
 function readBank(): VocabBankEntry[] {
   try {
@@ -104,9 +116,7 @@ export function VocabularyBuilderCard({
           <span className="text-xs text-muted-foreground">
             {bank.length} <T>saved</T>
           </span>
-          <span aria-hidden="true" className="text-muted-foreground">
-            {open ? "▾" : "▸"}
-          </span>
+          <FoldIndicator open={open} />
         </span>
       </button>
 
