@@ -39,6 +39,88 @@ export const testZone: Section[] = [
 
 export const allSections: Section[] = [...workbooks, ...testZone];
 
+export type TaskLanguage = "en" | "de" | "fr";
+
+const targetName: Record<TaskLanguage, string> = {
+  en: "English",
+  de: "German",
+  fr: "French",
+};
+
+const sectionLabelsByLanguage: Record<TaskLanguage, Record<WorkbookLevel, string>> = {
+  en: {
+    beginner: "Beginner",
+    intermediate: "Intermediate",
+    advanced: "Advanced",
+    business: "Business",
+    "just-for-fun": "Just for Fun",
+    "ielts-academic": "IELTS Academic",
+    "ielts-general-training": "IELTS General Training",
+    "b2-first": "B2 First",
+  },
+  de: {
+    beginner: "Deutsch A1–A2",
+    intermediate: "Deutsch B1",
+    advanced: "Deutsch B2–C1",
+    business: "Business-Deutsch",
+    "just-for-fun": "Deutsch kreativ",
+    "ielts-academic": "TestDaF",
+    "ielts-general-training": "Goethe-Zertifikat",
+    "b2-first": "telc Deutsch B2",
+  },
+  fr: {
+    beginner: "Français A1–A2",
+    intermediate: "Français B1",
+    advanced: "Français B2–C1",
+    business: "Français professionnel",
+    "just-for-fun": "Français créatif",
+    "ielts-academic": "DELF B2",
+    "ielts-general-training": "DELF B1",
+    "b2-first": "DALF C1",
+  },
+};
+
+function taskKind(task: Task): string {
+  return task.group || task.title.split(":")[0] || "Writing";
+}
+
+function wordMinimum(task: Task): string {
+  return task.wordCount.match(/\d+/)?.[0] ?? "80";
+}
+
+function adaptTask(task: Task, level: WorkbookLevel, lang: TaskLanguage): Task {
+  if (lang === "en") return task;
+  const target = targetName[lang];
+  const section = sectionLabelsByLanguage[lang][level];
+  const kind = taskKind(task);
+  const minimum = wordMinimum(task);
+  const sourceBullets = task.bullets.length > 0 ? task.bullets : [task.subtitle, task.prompt];
+
+  if (lang === "de") {
+    return {
+      ...task,
+      group: section,
+      title: `${section}: ${kind}`,
+      subtitle: `Eine ${target}-Schreibaufgabe im Stil von ${section}.`,
+      prompt: `Schreibe auf Deutsch. Bearbeite eine realistische Aufgabe aus ${section}: ${task.subtitle}`,
+      bullets: sourceBullets.map((b) => `Gehe darauf ein: ${b}`),
+      wordCount: `Schreibe mindestens ${minimum} Wörter auf Deutsch.`,
+      badge: task.badge ?? section,
+    };
+  }
+
+  return {
+    ...task,
+    group: section,
+    title: `${section} : ${kind}`,
+    subtitle: `Un exercice d’écriture en ${target} au format ${section}.`,
+    prompt: `Écris en français. Réponds à une tâche réaliste de type ${section} : ${task.subtitle}`,
+    bullets: sourceBullets.map((b) => `Traite ce point : ${b}`),
+    wordCount: `Écris au moins ${minimum} mots en français.`,
+    badge: task.badge ?? section,
+  };
+}
+
 const beginner: Task[] = [
   {
     id: "b-email-present",
@@ -1473,3 +1555,22 @@ export const yourWriting: Record<WorkbookLevel, { title: string; description: st
   "ielts-general-training": [],
   "b2-first": [],
 };
+
+export function getAllSectionsForLanguage(lang: TaskLanguage): Section[] {
+  return allSections.map((section) => ({
+    ...section,
+    label: sectionLabelsByLanguage[lang][section.slug],
+  }));
+}
+
+export function getTasksForLevel(level: WorkbookLevel, lang: TaskLanguage): Task[] {
+  return tasksByLevel[level].map((task) => adaptTask(task, level, lang));
+}
+
+export function getTaskForLanguage(
+  level: WorkbookLevel,
+  taskId: string,
+  lang: TaskLanguage,
+): Task | undefined {
+  return getTasksForLevel(level, lang).find((task) => task.id === taskId);
+}

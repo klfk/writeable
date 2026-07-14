@@ -1,10 +1,13 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
-import { tasksByLevel, allSections, type WorkbookLevel, type Task } from "@/data/tasks";
-import { useLang } from "@/lib/i18n";
-import { useTranslatedTask, prewarmWorkbookTranslations } from "@/lib/useTranslatedTask";
-import { translateStrings } from "@/lib/translate.functions";
+import {
+  tasksByLevel,
+  getAllSectionsForLanguage,
+  getTasksForLevel,
+  type WorkbookLevel,
+  type Task,
+} from "@/data/tasks";
+import { useLang, type Lang } from "@/lib/i18n";
 import { TutorialModal, TutorialPrompt } from "@/components/TutorialModal";
 
 const TUTORIAL_KEY = "writable_tutorial_seen_v1";
@@ -46,22 +49,20 @@ function formatRelative(iso: string): string {
   return `${y} year${y === 1 ? "" : "s"} ago`;
 }
 
-function loadWriting(level: WorkbookLevel): WritingEntry[] {
+const storageTaskId = (taskId: string, lang: Lang) =>
+  lang === "en" ? taskId : `${lang}_${taskId}`;
+const saveKey = (taskId: string, lang: Lang) => `task_save_${storageTaskId(taskId, lang)}`;
+
+function loadWriting(level: WorkbookLevel, lang: Lang): WritingEntry[] {
   if (typeof window === "undefined") return [];
-  const taskIds = new Set(tasksByLevel[level].map((t) => t.id));
+  const tasks = getTasksForLevel(level, lang);
   const entries: WritingEntry[] = [];
   try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith("task_save_")) continue;
-      const taskId = key.slice("task_save_".length);
-      if (!taskIds.has(taskId)) continue;
-      const raw = localStorage.getItem(key);
+    for (const task of tasks) {
+      const raw = localStorage.getItem(saveKey(task.id, lang));
       if (!raw) continue;
       const data = JSON.parse(raw);
       if (typeof data?.userText !== "string" || data.userText.trim().length === 0) continue;
-      const task = tasksByLevel[level].find((t) => t.id === taskId);
-      if (!task) continue;
       const cards = data?.correctionContext?.cards ?? [];
       const checked = (Array.isArray(cards) && cards.length > 0) || data?.relevanceScore != null;
       entries.push({
@@ -82,41 +83,21 @@ function loadWriting(level: WorkbookLevel): WritingEntry[] {
 function WorkbookPage() {
   const data = Route.useLoaderData() as { level: WorkbookLevel };
   const level = data.level;
-  const wb = allSections.find((w) => w.slug === level)!;
-  const tasks = tasksByLevel[level];
   const { lang, t } = useLang();
-  const translate_fn = useServerFn(translateStrings);
+  const sections = getAllSectionsForLanguage(lang);
+  const wb = sections.find((w) => w.slug === level)!;
+  const tasks = getTasksForLevel(level, lang);
   const [writing, setWriting] = useState<WritingEntry[]>([]);
   const [tutorialStage, setTutorialStage] = useState<"none" | "prompt" | "show">("none");
 
-  // Pre-warm translations for the current workbook first (blocking cache
-  // write), then for every other workbook in the background. Result:
-  // switching workbooks renders in the target language on the first paint.
   useEffect(() => {
-    if (lang === "en") return;
-    let cancelled = false;
-    void (async () => {
-      await prewarmWorkbookTranslations(tasks, lang, translate_fn);
-      if (cancelled) return;
-      for (const section of allSections) {
-        if (section.slug === level) continue;
-        if (cancelled) break;
-        await prewarmWorkbookTranslations(tasksByLevel[section.slug], lang, translate_fn);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [lang, level]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    setWriting(loadWriting(level));
+    setWriting(loadWriting(level, lang));
     const onStorage = (e: StorageEvent) => {
-      if (!e.key || e.key.startsWith("task_save_")) setWriting(loadWriting(level));
+      if (!e.key || e.key.startsWith("task_save_")) setWriting(loadWriting(level, lang));
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [level]);
+  }, [level, lang]);
 
   useEffect(() => {
     try {
@@ -200,8 +181,6 @@ function WorkbookPage() {
 }
 
 function TaskRow({ task, level }: { task: Task; level: WorkbookLevel }) {
-  const tr = useTranslatedTask(task);
-
   return (
     <li className="group relative border-b border-border bg-card transition-colors duration-300 ease-out last:border-b-0 hover:bg-teal-soft focus-within:bg-teal-soft">
       <Link
@@ -216,21 +195,21 @@ function TaskRow({ task, level }: { task: Task; level: WorkbookLevel }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold text-foreground">{tr.title}</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">{tr.subtitle}</div>
+              <div className="text-sm font-semibold text-foreground">{task.title}</div>
+              <div className="mt-0.5 text-xs text-muted-foreground">{task.subtitle}</div>
             </div>
           </div>
           <div className="mt-1 grid grid-rows-[0fr] opacity-60 transition-all duration-300 ease-out group-hover:mt-3 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus-within:mt-3 group-focus-within:grid-rows-[1fr] group-focus-within:opacity-100 max-sm:mt-3 max-sm:grid-rows-[1fr] max-sm:opacity-100">
             <div className="overflow-hidden">
-              <p className="text-xs leading-relaxed text-foreground/80">{tr.prompt}</p>
-              {tr.bullets.length > 0 && (
+              <p className="text-xs leading-relaxed text-foreground/80">{task.prompt}</p>
+              {task.bullets.length > 0 && (
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-foreground/80">
-                  {tr.bullets.map((b, i) => (
+                  {task.bullets.map((b, i) => (
                     <li key={i}>{b}</li>
                   ))}
                 </ul>
               )}
-              <p className="mt-2 text-xs font-semibold text-foreground">{tr.wordCount}</p>
+              <p className="mt-2 text-xs font-semibold text-foreground">{task.wordCount}</p>
             </div>
           </div>
         </div>

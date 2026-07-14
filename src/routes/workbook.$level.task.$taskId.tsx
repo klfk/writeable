@@ -1,7 +1,7 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { tasksByLevel, type WorkbookLevel, type Task } from "@/data/tasks";
+import { getTaskForLanguage, tasksByLevel, type WorkbookLevel, type Task } from "@/data/tasks";
 import { useSettings } from "@/lib/settings";
 import {
   checkWriting,
@@ -17,7 +17,6 @@ import {
 } from "@/lib/check.functions";
 import { motivationalMessages, getMotivationalMessages } from "@/lib/motivationalMessages";
 import { useLang } from "@/lib/i18n";
-import { useTranslatedTask } from "@/lib/useTranslatedTask";
 import {
   CorrectionProvider,
   useCorrectionContext,
@@ -128,13 +127,16 @@ type TaskSave = {
   checkDone: boolean;
 };
 
+const storageTaskId = (taskId: string, lang: string) =>
+  lang === "en" ? taskId : `${lang}_${taskId}`;
 const saveKey = (taskId: string) => `task_save_${taskId}`;
 
 function TaskDetailPage() {
   const data = Route.useLoaderData() as { level: WorkbookLevel; task: Task };
   const { level, task } = data;
-  const tr = useTranslatedTask(task);
   const { lang, t } = useLang();
+  const activeTaskId = storageTaskId(task.id, lang);
+  const tr = getTaskForLanguage(level, task.id, lang) ?? task;
   const { settings, isPluginEnabled } = useSettings();
   const correctionCtx = useCorrectionContext();
   const [text, setText] = useState("");
@@ -179,7 +181,7 @@ function TaskDetailPage() {
 
   // Build current snapshot (read fresh state each call)
   const buildSnapshot = (): TaskSave => ({
-    taskId: task.id,
+    taskId: activeTaskId,
     savedAt: new Date().toISOString(),
     userText: text,
     correctionContext: {
@@ -204,10 +206,10 @@ function TaskDetailPage() {
     try {
       const snap = snapshotRef.current;
       if (!snap) return;
-      localStorage.setItem(saveKey(task.id), JSON.stringify(snap));
+      localStorage.setItem(saveKey(activeTaskId), JSON.stringify(snap));
       setSaveStatus("saved");
       // Fire-and-forget cloud sync; no-op when signed out.
-      void pushTaskSave(task.id);
+      void pushTaskSave(activeTaskId);
     } catch {
       setSaveStatus("error");
     }
@@ -232,14 +234,28 @@ function TaskDetailPage() {
 
   // Restore on mount
   useEffect(() => {
+    loadedRef.current = false;
+    setText("");
+    setCheck({ status: "idle" });
+    setScore({ status: "idle" });
+    setMotivational(null);
+    setCards({ status: "idle" });
+    setCefrScore(null);
+    setProgressHistory([]);
+    setTimerElapsed(0);
+    setChatHistory([]);
+    setAiFeedbackStatus("idle");
+    setSaveStatus("none");
+    correctionCtx.reset();
+
     let loadTimer: number | null = null;
     let demoTextToCheck: string | null = null;
     try {
-      const demoKey = `demo_prefill_${task.id}`;
+      const demoKey = `demo_prefill_${activeTaskId}`;
       const demoText = typeof window !== "undefined" ? sessionStorage.getItem(demoKey) : null;
-      const raw = localStorage.getItem(saveKey(task.id));
+      const raw = localStorage.getItem(saveKey(activeTaskId));
       if (demoText) {
-        localStorage.removeItem(saveKey(task.id));
+        localStorage.removeItem(saveKey(activeTaskId));
         setText(demoText);
         correctionCtx.setUserText(demoText);
         setSaveStatus("unsaved");
@@ -290,7 +306,7 @@ function TaskDetailPage() {
       loadedRef.current = true;
       if (demoTextToCheck && demoTextToCheck.trim().length > 0) {
         try {
-          sessionStorage.removeItem(`demo_prefill_${task.id}`);
+          sessionStorage.removeItem(`demo_prefill_${activeTaskId}`);
         } catch {
           // ignore storage errors
         }
@@ -301,7 +317,7 @@ function TaskDetailPage() {
       if (loadTimer != null) window.clearTimeout(loadTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.id]);
+  }, [activeTaskId]);
 
   // Auto-save: typing & chat are debounced; other state changes save immediately.
   useEffect(() => {
@@ -352,7 +368,7 @@ function TaskDetailPage() {
     const runId = checkRunRef.current + 1;
     checkRunRef.current = runId;
     const isCurrentRun = () => checkRunRef.current === runId;
-    const assessmentLang = "en";
+    const assessmentLang = lang;
     setCheck({ status: "idle" });
     setMotivational(pickMotivationalMessage(lang));
     setScore({ status: "loading" });
@@ -408,7 +424,7 @@ function TaskDetailPage() {
     void (async () => {
       try {
         const res = await score_fn({
-          data: { taskPrompt: task.prompt, text: textToCheck, lang: assessmentLang },
+          data: { taskPrompt: tr.prompt, text: textToCheck, lang: assessmentLang },
         });
         if (!isCurrentRun()) return;
         if (!res.ok) setScore({ status: "error" });
@@ -437,7 +453,7 @@ function TaskDetailPage() {
       void (async () => {
         try {
           const res = await ai_feedback_fn({
-            data: { taskPrompt: task.prompt, text: textToCheck, lang },
+            data: { taskPrompt: tr.prompt, text: textToCheck, lang: assessmentLang },
           });
           if (!isCurrentRun()) return;
           if (!res.ok) {
@@ -506,7 +522,7 @@ function TaskDetailPage() {
                 )}
                 <div className="bg-teal px-4 py-2 text-xs text-teal-foreground">
                   {words} {t("words entered (the word count for this task is about")}{" "}
-                  {task.wordCount.match(/\d+/)?.[0] ?? "25"} {t("words).")}
+                  {tr.wordCount.match(/\d+/)?.[0] ?? "25"} {t("words).")}
                 </div>
               </div>
 
@@ -559,7 +575,7 @@ function TaskDetailPage() {
               check={check}
               score={score}
               motivational={motivational}
-              hasImages={(task.images?.length ?? 0) > 0}
+              hasImages={(tr.images?.length ?? 0) > 0}
             />
           )}
           {correctionCardsOn && (
@@ -581,7 +597,7 @@ function TaskDetailPage() {
           {vocabularyBuilderOn && (
             <VocabularyBuilderCard
               cards={cards.status === "done" ? cards.cards : []}
-              taskId={task.id}
+              taskId={activeTaskId}
             />
           )}
         </aside>
