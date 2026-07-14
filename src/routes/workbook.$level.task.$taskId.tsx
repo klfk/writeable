@@ -107,6 +107,68 @@ type CardsState =
 type SaveStatus = "saved" | "saving" | "unsaved" | "error" | "none";
 type ChatUiMsg = { role: "user" | "assistant"; content: string; ts: number };
 
+type CorrectionProgressInput = {
+  inlineOn: boolean;
+  cardsNeeded: boolean;
+  aiFeedbackOn: boolean;
+  check: CheckState;
+  cards: CardsState;
+  score: ScoreState;
+  cefrStatus: "idle" | "loading" | "done" | "error";
+  aiFeedbackStatus: "idle" | "loading" | "done" | "error";
+};
+
+function stepDone(status: string) {
+  return status === "done" || status === "disabled" || status === "error";
+}
+
+function getCorrectionProgress(input: CorrectionProgressInput) {
+  const steps = [
+    input.inlineOn ? { label: "Highlights", status: input.check.status } : null,
+    { label: "Relevance", status: input.score.status },
+    { label: "Level", status: input.cefrStatus },
+    input.cardsNeeded ? { label: "Correction cards", status: input.cards.status } : null,
+    input.aiFeedbackOn ? { label: "AI feedback", status: input.aiFeedbackStatus } : null,
+  ].filter((step): step is { label: string; status: string } => Boolean(step));
+  const active = steps.some((step) => step.status === "loading");
+  const completed = steps.filter((step) => stepDone(step.status)).length;
+  const failed = steps.some((step) => step.status === "error");
+  const percent = steps.length === 0 ? 0 : Math.round((completed / steps.length) * 100);
+  const current = steps.find((step) => step.status === "loading")?.label ?? null;
+  return { active, completed, failed, percent, current, total: steps.length };
+}
+
+function tokenizeForDiff(text: string) {
+  return text.match(/\s+|\S+/g) ?? [];
+}
+
+function diffTokens(before: string, after: string) {
+  const a = tokenizeForDiff(before);
+  const b = tokenizeForDiff(after);
+  const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const out: { type: "same" | "added" | "removed"; text: string }[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      out.push({ type: "same", text: a[i++] });
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      out.push({ type: "removed", text: a[i++] });
+    } else {
+      out.push({ type: "added", text: b[j++] });
+    }
+  }
+  while (i < a.length) out.push({ type: "removed", text: a[i++] });
+  while (j < b.length) out.push({ type: "added", text: b[j++] });
+  return out;
+}
+
 type TaskSave = {
   taskId: string;
   savedAt: string;
@@ -151,6 +213,7 @@ function TaskDetailPage() {
   const ai_feedback_fn = useServerFn(getAiFeedback);
 
   const [cefrScore, setCefrScore] = useState<number | null>(null);
+  const [cefrStatus, setCefrStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [progressHistory, setProgressHistory] = useState<number[]>([]);
   const [timerElapsed, setTimerElapsed] = useState(0);
   const [chatHistory, setChatHistory] = useState<ChatUiMsg[] | null>(null);
@@ -178,6 +241,22 @@ function TaskDetailPage() {
   const aiChatOn = isPluginEnabled("ai-chat");
   const aiFeedbackOn = isPluginEnabled("ai-feedback");
   const vocabularyBuilderOn = isPluginEnabled("vocabulary-builder");
+  const vimSupportOn = isPluginEnabled("vim-support");
+  const cardsNeeded =
+    correctionCardsOn || rewriteChallengeOn || beforeAfterOn || vocabularyBuilderOn;
+  const [vimMode, setVimMode] = useState<"insert" | "normal">("insert");
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingVimKeyRef = useRef<string | null>(null);
+  const correctionProgress = getCorrectionProgress({
+    inlineOn,
+    cardsNeeded,
+    aiFeedbackOn,
+    check,
+    cards,
+    score,
+    cefrStatus,
+    aiFeedbackStatus,
+  });
 
   // Build current snapshot (read fresh state each call)
   const buildSnapshot = (): TaskSave => ({
@@ -241,6 +320,7 @@ function TaskDetailPage() {
     setMotivational(null);
     setCards({ status: "idle" });
     setCefrScore(null);
+    setCefrStatus("idle");
     setProgressHistory([]);
     setTimerElapsed(0);
     setChatHistory([]);
@@ -284,7 +364,7 @@ function TaskDetailPage() {
           } else {
             setCheck({ status: "disabled" });
           }
-          if (correctionCardsOn || rewriteChallengeOn || beforeAfterOn) {
+          if (cardsNeeded) {
             setCards({ status: "done", cards: save.correctionContext?.cards ?? [] });
           }
         }
@@ -362,6 +442,80 @@ function TaskDetailPage() {
     };
   }, []);
 
+  function setTextareaSelection(start: number, end = start) {
+    window.requestAnimationFrame(() => {
+      textAreaRef.current?.setSelectionRange(start, end);
+    });
+  }
+
+  function replaceTextareaRange(start: number, end: number, value: string) {
+    const next = text.slice(0, start) + value + text.slice(end);
+    setText(next);
+    setTextareaSelection(start + value.length);
+  }
+
+  function handleVimKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (!vimSupportOn) return;
+    const el = event.currentTarget;
+    const cursor = el.selectionStart ?? 0;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      pendingVimKeyRef.current = null;
+      setVimMode("normal");
+      return;
+    }
+    if (vimMode === "insert") return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    event.preventDefault();
+    const key = event.key;
+    const lineStart = text.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
+    const lineEndRaw = text.indexOf("\n", cursor);
+    const lineEnd = lineEndRaw === -1 ? text.length : lineEndRaw;
+    const col = cursor - lineStart;
+    const prev = pendingVimKeyRef.current;
+    pendingVimKeyRef.current = null;
+
+    if (prev === "d" && key === "d") {
+      const removeEnd = lineEndRaw === -1 ? lineEnd : lineEnd + 1;
+      replaceTextareaRange(lineStart, removeEnd, "");
+      return;
+    }
+    if (key === "d") {
+      pendingVimKeyRef.current = "d";
+      return;
+    }
+    if (key === "i") {
+      setVimMode("insert");
+      return;
+    }
+    if (key === "a") {
+      setVimMode("insert");
+      setTextareaSelection(Math.min(text.length, cursor + 1));
+      return;
+    }
+    if (key === "o") {
+      setVimMode("insert");
+      replaceTextareaRange(lineEnd, lineEnd, "\n");
+      return;
+    }
+    if (key === "x" && cursor < text.length) {
+      replaceTextareaRange(cursor, cursor + 1, "");
+      return;
+    }
+    if (key === "h") setTextareaSelection(Math.max(0, cursor - 1));
+    if (key === "l") setTextareaSelection(Math.min(text.length, cursor + 1));
+    if (key === "j") {
+      const nextLineEndRaw = text.indexOf("\n", lineEnd + 1);
+      const nextLineEnd = nextLineEndRaw === -1 ? text.length : nextLineEndRaw;
+      setTextareaSelection(Math.min(lineEnd + 1 + col, nextLineEnd));
+    }
+    if (key === "k") {
+      const prevLineEnd = Math.max(0, lineStart - 1);
+      const prevLineStart = text.lastIndexOf("\n", Math.max(0, prevLineEnd - 1)) + 1;
+      setTextareaSelection(Math.min(prevLineStart + col, prevLineEnd));
+    }
+  }
+
   async function onCheck(textOverride?: string) {
     const textToCheck = textOverride ?? text;
     if (textToCheck.trim().length === 0) return;
@@ -372,6 +526,7 @@ function TaskDetailPage() {
     setCheck({ status: "idle" });
     setMotivational(pickMotivationalMessage(lang));
     setScore({ status: "loading" });
+    setCefrStatus("loading");
 
     // Reset shared correction context, then seed userText
     correctionCtx.reset();
@@ -397,7 +552,7 @@ function TaskDetailPage() {
       setCheck({ status: "disabled" });
     }
 
-    if (correctionCardsOn || rewriteChallengeOn || beforeAfterOn) {
+    if (cardsNeeded) {
       setCards({ status: "loading" });
       void (async () => {
         try {
@@ -436,15 +591,19 @@ function TaskDetailPage() {
     })();
     void (async () => {
       let lvl = 3.0;
+      let ok = true;
       try {
         const res = await cefr_fn({ data: { text: textToCheck, lang: assessmentLang } });
         if (res.ok) lvl = Math.max(1, Math.min(6, res.level));
+        else ok = false;
       } catch {
+        ok = false;
         lvl = 3.0;
       }
       if (!isCurrentRun()) return;
       const rounded = Number(lvl.toFixed(2));
       setCefrScore(rounded);
+      setCefrStatus(ok ? "done" : "error");
       setProgressHistory((arr) => [...arr, rounded].slice(-10));
     })();
 
@@ -514,8 +673,10 @@ function TaskDetailPage() {
                   />
                 ) : (
                   <textarea
+                    ref={textAreaRef}
                     value={text}
                     onChange={(e) => setText(e.target.value)}
+                    onKeyDown={handleVimKeyDown}
                     placeholder={t("Write your text here.")}
                     className="block min-h-[320px] w-full resize-y bg-card p-4 text-sm leading-6 text-foreground outline-none"
                   />
@@ -525,6 +686,15 @@ function TaskDetailPage() {
                   {tr.wordCount.match(/\d+/)?.[0] ?? "25"} {t("words).")}
                 </div>
               </div>
+              <CorrectionProgressBar progress={correctionProgress} />
+              {vimSupportOn && (
+                <div className="mt-2 flex items-center justify-between border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  <span>{t("Vim mode")}</span>
+                  <span className="font-mono font-semibold uppercase" style={{ color: "#2a9d8f" }}>
+                    {vimMode}
+                  </span>
+                </div>
+              )}
 
               {showHighlights && (
                 <div className="mt-3">
@@ -560,13 +730,38 @@ function TaskDetailPage() {
             </div>
           </section>
 
-          {aiFeedbackOn && (
-            <AiFeedbackCard
-              status={aiFeedbackStatus}
-              feedback={correctionCtx.aiFeedback}
-              cefrScore={cefrScore}
-            />
-          )}
+          <div className="space-y-4">
+            {aiFeedbackOn && (
+              <AiFeedbackCard
+                status={aiFeedbackStatus}
+                feedback={correctionCtx.aiFeedback}
+                cefrScore={cefrScore}
+              />
+            )}
+            {correctionCardsOn && (
+              <CorrectionCardsBlock state={cards} showSuggestions={suggestionRevealOn} />
+            )}
+            {rewriteChallengeOn && <RewriteChallengeCard cards={correctionCtx.cards} />}
+            {beforeAfterOn && (
+              <BeforeAfterCard text={correctionCtx.userText || text} cards={correctionCtx.cards} />
+            )}
+            {settings.showProgress && isPluginEnabled("your-progress") && (
+              <ProgressCard history={progressHistory} />
+            )}
+            {settings.showTimer && isPluginEnabled("task-timer") && (
+              <TimerCard initialElapsed={timerElapsed} onElapsedChange={setTimerElapsed} />
+            )}
+            {aiChatOn && (
+              <AIChatCard initialMessages={chatHistory} onMessagesChange={setChatHistory} />
+            )}
+            {vocabularyBuilderOn && (
+              <VocabularyBuilderCard
+                cards={cards.status === "done" ? cards.cards : []}
+                taskId={activeTaskId}
+              />
+            )}
+            {vimSupportOn && <VimSupportCard mode={vimMode} />}
+          </div>
         </div>
 
         <aside className="space-y-4">
@@ -576,28 +771,8 @@ function TaskDetailPage() {
               score={score}
               motivational={motivational}
               hasImages={(tr.images?.length ?? 0) > 0}
-            />
-          )}
-          {correctionCardsOn && (
-            <CorrectionCardsBlock state={cards} showSuggestions={suggestionRevealOn} />
-          )}
-          {rewriteChallengeOn && <RewriteChallengeCard cards={correctionCtx.cards} />}
-          {beforeAfterOn && (
-            <BeforeAfterCard text={correctionCtx.userText || text} cards={correctionCtx.cards} />
-          )}
-          {settings.showProgress && isPluginEnabled("your-progress") && (
-            <ProgressCard history={progressHistory} />
-          )}
-          {settings.showTimer && isPluginEnabled("task-timer") && (
-            <TimerCard initialElapsed={timerElapsed} onElapsedChange={setTimerElapsed} />
-          )}
-          {aiChatOn && (
-            <AIChatCard initialMessages={chatHistory} onMessagesChange={setChatHistory} />
-          )}
-          {vocabularyBuilderOn && (
-            <VocabularyBuilderCard
-              cards={cards.status === "done" ? cards.cards : []}
-              taskId={activeTaskId}
+              checkedText={correctionCtx.userText}
+              currentText={text}
             />
           )}
         </aside>
@@ -664,15 +839,71 @@ function buildSegments(text: string, issues: CheckIssue[]): { text: string; type
   return out;
 }
 
+function CorrectionProgressBar({
+  progress,
+}: {
+  progress: ReturnType<typeof getCorrectionProgress>;
+}) {
+  const { t } = useLang();
+  if (!progress.active && progress.completed === 0) return null;
+  const label = progress.active
+    ? `${t("Checking")}: ${t(progress.current ?? "writing")}`
+    : progress.failed
+      ? t("Finished with some errors")
+      : t("Correction complete");
+  return (
+    <div className="mt-3 border border-border bg-muted/30 px-3 py-2">
+      <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+        <span>{label}</span>
+        <span>
+          {progress.completed}/{progress.total}
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full transition-all duration-300"
+          style={{ width: `${progress.percent}%`, backgroundColor: "#2a9d8f" }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   const { t } = useLang();
+  const [open, setOpen] = useState(true);
   return (
     <div className="border border-border bg-card">
-      <div className="border-b border-border px-4 py-2.5 text-sm font-semibold text-foreground">
-        {t(title)}
-      </div>
-      <div className="px-4 py-4">{children}</div>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between border-b border-border px-4 py-2.5 text-left text-sm font-semibold text-foreground"
+      >
+        <span>{t(title)}</span>
+        <span aria-hidden="true" className="text-muted-foreground">
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      {open && <div className="px-4 py-4">{children}</div>}
     </div>
+  );
+}
+
+function VimSupportCard({ mode }: { mode: "insert" | "normal" }) {
+  const { t } = useLang();
+  return (
+    <Card title="Vim Support">
+      <div className="space-y-2 text-sm text-foreground">
+        <p>
+          {t("Current mode")}: <span className="font-mono font-semibold uppercase">{mode}</span>
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            "Esc enters Normal mode. Use i/a/o for Insert, hjkl to move, x to delete, and dd to delete the current line.",
+          )}
+        </p>
+      </div>
+    </Card>
   );
 }
 
@@ -681,11 +912,15 @@ function TaskHelpCard({
   score,
   motivational,
   hasImages,
+  checkedText,
+  currentText,
 }: {
   check: CheckState;
   score: ScoreState;
   motivational: string | null;
   hasImages: boolean;
+  checkedText: string;
+  currentText: string;
 }) {
   const { t } = useLang();
   type Tab = "Images" | "Feedback" | "Changes";
@@ -723,12 +958,76 @@ function TaskHelpCard({
       <div className="px-4 py-4">
         {tab === "Feedback" ? (
           <FeedbackContent check={check} score={score} motivational={motivational} />
+        ) : tab === "Changes" ? (
+          <ChangesContent checkedText={checkedText} currentText={currentText} />
         ) : (
           <p className="text-xs italic text-muted-foreground">
-            {t("Your automatic feedback will appear here after we finish checking your work.")}
+            {t("No task images are available for this exercise.")}
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+function ChangesContent({
+  checkedText,
+  currentText,
+}: {
+  checkedText: string;
+  currentText: string;
+}) {
+  const { t } = useLang();
+  if (!checkedText.trim()) {
+    return (
+      <p className="text-xs italic text-muted-foreground">
+        {t("Press Check once, then edit your text to see your changes here.")}
+      </p>
+    );
+  }
+  if (checkedText === currentText) {
+    return (
+      <p className="text-xs italic text-muted-foreground">{t("No edits since the last check.")}</p>
+    );
+  }
+  const diff = diffTokens(checkedText, currentText);
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="flex flex-wrap gap-2 text-muted-foreground">
+        <span className="rounded-sm bg-red-50 px-2 py-1" style={{ color: "#c0392b" }}>
+          - {t("removed")}
+        </span>
+        <span className="rounded-sm bg-emerald-50 px-2 py-1" style={{ color: "#2a9d8f" }}>
+          + {t("added")}
+        </span>
+      </div>
+      <pre className="max-h-72 overflow-auto whitespace-pre-wrap border border-border bg-muted/30 p-3 font-mono leading-6">
+        {diff.map((part, index) => {
+          if (part.type === "same") return <span key={index}>{part.text}</span>;
+          if (part.type === "added") {
+            return (
+              <span
+                key={index}
+                style={{ backgroundColor: "rgba(42, 157, 143, 0.16)", color: "#1f7a70" }}
+              >
+                {part.text}
+              </span>
+            );
+          }
+          return (
+            <span
+              key={index}
+              style={{
+                backgroundColor: "rgba(192, 57, 43, 0.14)",
+                color: "#a93226",
+                textDecoration: "line-through",
+              }}
+            >
+              {part.text}
+            </span>
+          );
+        })}
+      </pre>
     </div>
   );
 }
@@ -946,7 +1245,6 @@ function TimerCard({
   const startRef = useRef<number | null>(null);
   const baseRef = useRef(initialElapsed);
 
-  // Sync on prop change (e.g., after Start again clears state)
   useEffect(() => {
     baseRef.current = initialElapsed;
     setElapsed(initialElapsed);
@@ -994,11 +1292,8 @@ function TimerCard({
       : "Click on 'Start timer' to time your writing.";
 
   return (
-    <div className="border border-border bg-card">
-      <div className="border-b border-border px-4 py-2.5 text-sm font-semibold text-foreground">
-        {t("Task Timer")}
-      </div>
-      <div className="px-4 py-4">
+    <Card title="Task Timer">
+      <div>
         <p className="text-sm" style={{ color: "#2d2d2d" }}>
           {t(line1)}
         </p>
@@ -1007,10 +1302,7 @@ function TimerCard({
           <span className="font-mono">{formatHMS(elapsed)}</span>
         </p>
       </div>
-      <div
-        className="flex justify-end gap-2 border-t border-border px-4 py-3"
-        style={{ backgroundColor: "#ffffff" }}
-      >
+      <div className="mt-4 flex justify-end gap-2">
         {state === "running" ? (
           <SkewButton onClick={stop}>{t("Stop timer")}</SkewButton>
         ) : (
@@ -1020,7 +1312,7 @@ function TimerCard({
           </>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -1038,17 +1330,14 @@ function ProgressCard({ history }: { history: number[] }) {
   const xFor = (index: number) => pad.left + ((index + 1) / 11) * plotW;
 
   return (
-    <div className="border border-border bg-card">
-      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <div className="text-sm font-semibold text-foreground">{t("Your progress")}</div>
-        <div className="flex flex-col items-center border border-border px-3 py-1">
-          <span className="text-[10px] uppercase tracking-wide" style={{ color: "#7a7a7a" }}>
-            {t("Checks")}
-          </span>
-          <span className="text-lg font-bold leading-none" style={{ color: "#2d2d2d" }}>
-            {scores.length}
-          </span>
-        </div>
+    <Card title="Your progress">
+      <div className="mb-3 inline-flex flex-col items-center border border-border px-3 py-1">
+        <span className="text-[10px] uppercase tracking-wide" style={{ color: "#7a7a7a" }}>
+          {t("Checks")}
+        </span>
+        <span className="text-lg font-bold leading-none" style={{ color: "#2d2d2d" }}>
+          {scores.length}
+        </span>
       </div>
       <div className="bg-white px-2 pt-3" style={{ height: 280 }}>
         {scores.length === 0 ? (
@@ -1095,7 +1384,7 @@ function ProgressCard({ history }: { history: number[] }) {
       <div className="px-3 py-3 text-xs" style={{ backgroundColor: "#e0f4f4", color: "#2d2d2d" }}>
         {t("This graph shows your CEFR level estimate for your last 10 checks.")}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -1113,6 +1402,7 @@ function CorrectionCardsBlock({
   showSuggestions: boolean;
 }) {
   const { t } = useLang();
+  const [open, setOpen] = useState(true);
   const [showAllCards, setShowAllCards] = useState(false);
   const count = state.status === "done" ? state.cards.length : 0;
   const countLabel =
@@ -1123,19 +1413,26 @@ function CorrectionCardsBlock({
 
   return (
     <div className="border bg-card" style={{ borderColor: "#e0e0e0", borderRadius: 4 }}>
-      <div
-        className="flex items-center justify-between border-b px-4 py-2.5"
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between border-b px-4 py-2.5 text-left"
         style={{ borderColor: "#e0e0e0" }}
       >
-        <div className="text-sm font-semibold text-foreground">{t("Correction Cards")}</div>
-        {countLabel && (
-          <span className="text-xs" style={{ color: "#7a7a7a" }}>
-            {countLabel}
+        <span className="text-sm font-semibold text-foreground">{t("Correction Cards")}</span>
+        <span className="inline-flex items-center gap-2">
+          {countLabel && (
+            <span className="text-xs" style={{ color: "#7a7a7a" }}>
+              {countLabel}
+            </span>
+          )}
+          <span aria-hidden="true" className="text-muted-foreground">
+            {open ? "▾" : "▸"}
           </span>
-        )}
-      </div>
+        </span>
+      </button>
 
-      {state.status === "idle" && (
+      {open && state.status === "idle" && (
         <div className="px-4 py-4">
           <p className="text-xs italic text-muted-foreground">
             {t("Run a check to see detailed correction cards.")}
@@ -1143,7 +1440,7 @@ function CorrectionCardsBlock({
         </div>
       )}
 
-      {state.status === "loading" && (
+      {open && state.status === "loading" && (
         <div className="space-y-2 px-4 py-4">
           {[0, 1, 2].map((i) => (
             <div key={i} style={{ height: 56, backgroundColor: "#f0f0f0" }} />
@@ -1151,7 +1448,7 @@ function CorrectionCardsBlock({
         </div>
       )}
 
-      {state.status === "error" && (
+      {open && state.status === "error" && (
         <div className="px-4 py-4">
           <p className="text-xs italic text-muted-foreground">
             {t("Could not load correction cards. Please try again.")}
@@ -1159,7 +1456,7 @@ function CorrectionCardsBlock({
         </div>
       )}
 
-      {state.status === "done" && state.cards.length === 0 && (
+      {open && state.status === "done" && state.cards.length === 0 && (
         <div className="flex items-center justify-center px-4 py-6">
           <p className="text-xs italic text-muted-foreground">
             {t("No issues found. Great work!")}
@@ -1167,7 +1464,8 @@ function CorrectionCardsBlock({
         </div>
       )}
 
-      {state.status === "done" &&
+      {open &&
+        state.status === "done" &&
         visibleCards.map((card, i) => {
           const color = CARD_TYPE_COLORS[card.type];
           const isLast = i === visibleCards.length - 1 && hiddenCardCount === 0;
@@ -1182,7 +1480,7 @@ function CorrectionCardsBlock({
           );
         })}
 
-      {state.status === "done" && state.cards.length > 3 && (
+      {open && state.status === "done" && state.cards.length > 3 && (
         <div className="border-t px-4 py-3" style={{ borderColor: "#eeeeee" }}>
           <button
             type="button"
@@ -1503,6 +1801,7 @@ function AIChatCard({
   });
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [open, setOpen] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const lastSyncedRef = useRef<ChatUiMsg[] | null>(initialMessages);
 
@@ -1564,83 +1863,96 @@ function AIChatCard({
 
   return (
     <div className="border bg-card" style={{ borderColor: "#e0e0e0", borderRadius: 4 }}>
-      <div
-        className="border-b px-4 py-2.5 text-sm font-semibold text-foreground"
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between border-b px-4 py-2.5 text-left text-sm font-semibold text-foreground"
         style={{ borderColor: "#e0e0e0" }}
       >
-        {t("AI Chat")}
-      </div>
-      <div ref={scrollRef} className="space-y-3 overflow-y-auto px-4 py-3" style={{ height: 320 }}>
-        {messages.map((m, i) => (
+        <span>{t("AI Chat")}</span>
+        <span aria-hidden="true" className="text-muted-foreground">
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      {open && (
+        <>
           <div
-            key={i}
-            className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}
+            ref={scrollRef}
+            className="space-y-3 overflow-y-auto px-4 py-3"
+            style={{ height: 320 }}
           >
-            <div
-              className="px-3 py-2 text-sm"
-              style={{
-                maxWidth: "80%",
-                borderRadius: 4,
-                backgroundColor: m.role === "user" ? "#2a9d8f" : "#f0f0f0",
-                color: m.role === "user" ? "#ffffff" : "#2d2d2d",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {m.role === "assistant" ? renderInlineMarkdown(m.content) : m.content}
-            </div>
-            {m.ts > 0 && (
-              <span className="mt-1 text-[10px]" style={{ color: "#9a9a9a" }}>
-                {fmtTime(m.ts)}
-              </span>
+            {messages.map((m, i) => (
+              <div
+                key={i}
+                className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}
+              >
+                <div
+                  className="px-3 py-2 text-sm"
+                  style={{
+                    maxWidth: "80%",
+                    borderRadius: 4,
+                    backgroundColor: m.role === "user" ? "#2a9d8f" : "#f0f0f0",
+                    color: m.role === "user" ? "#ffffff" : "#2d2d2d",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {m.role === "assistant" ? renderInlineMarkdown(m.content) : m.content}
+                </div>
+                {m.ts > 0 && (
+                  <span className="mt-1 text-[10px]" style={{ color: "#9a9a9a" }}>
+                    {fmtTime(m.ts)}
+                  </span>
+                )}
+              </div>
+            ))}
+            {pending && (
+              <div className="flex flex-col items-start">
+                <div
+                  className="px-3 py-2 text-sm"
+                  style={{
+                    maxWidth: "80%",
+                    borderRadius: 4,
+                    backgroundColor: "#f0f0f0",
+                    color: "#2d2d2d",
+                  }}
+                >
+                  …
+                </div>
+              </div>
             )}
           </div>
-        ))}
-        {pending && (
-          <div className="flex flex-col items-start">
-            <div
-              className="px-3 py-2 text-sm"
+          <div className="flex gap-2 border-t px-3 py-2" style={{ borderColor: "#e0e0e0" }}>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+              placeholder={t("Ask about your writing…")}
+              disabled={pending}
+              className="flex-1 border px-3 py-2 text-sm outline-none"
+              style={{ borderColor: "#e0e0e0", borderRadius: 4, backgroundColor: "#ffffff" }}
+            />
+            <button
+              type="button"
+              onClick={() => void send()}
+              disabled={pending || input.trim().length === 0}
+              className="px-3 py-2 text-sm font-medium"
               style={{
-                maxWidth: "80%",
+                backgroundColor: "#2a9d8f",
+                color: "#ffffff",
                 borderRadius: 4,
-                backgroundColor: "#f0f0f0",
-                color: "#2d2d2d",
+                opacity: pending || input.trim().length === 0 ? 0.6 : 1,
               }}
             >
-              …
-            </div>
+              Send
+            </button>
           </div>
-        )}
-      </div>
-      <div className="flex gap-2 border-t px-3 py-2" style={{ borderColor: "#e0e0e0" }}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          placeholder={t("Ask about your writing…")}
-          disabled={pending}
-          className="flex-1 border px-3 py-2 text-sm outline-none"
-          style={{ borderColor: "#e0e0e0", borderRadius: 4, backgroundColor: "#ffffff" }}
-        />
-        <button
-          type="button"
-          onClick={() => void send()}
-          disabled={pending || input.trim().length === 0}
-          className="px-3 py-2 text-sm font-medium"
-          style={{
-            backgroundColor: "#2a9d8f",
-            color: "#ffffff",
-            borderRadius: 4,
-            opacity: pending || input.trim().length === 0 ? 0.6 : 1,
-          }}
-        >
-          Send
-        </button>
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1690,64 +2002,76 @@ function AiFeedbackCard({
   const showLoading = status === "loading";
   const showEmpty = status === "idle" && !feedback;
   const showError = status === "error" && !feedback;
+  const [open, setOpen] = useState(true);
 
   return (
     <div className="border border-border bg-card">
-      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <div className="text-sm font-semibold text-foreground">{t("AI Feedback")}</div>
-        {band && (
-          <div className="flex flex-col items-center border border-border px-3 py-1">
-            <span className="text-[10px] uppercase tracking-wide" style={{ color: "#7a7a7a" }}>
-              {t("Level")}
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between border-b border-border px-4 py-2.5 text-left"
+      >
+        <span className="text-sm font-semibold text-foreground">{t("AI Feedback")}</span>
+        <span className="inline-flex items-center gap-2">
+          {band && (
+            <span className="flex flex-col items-center border border-border px-3 py-1">
+              <span className="text-[10px] uppercase tracking-wide" style={{ color: "#7a7a7a" }}>
+                {t("Level")}
+              </span>
+              <span className="text-lg font-bold leading-none" style={{ color: "#2d2d2d" }}>
+                {band}
+              </span>
             </span>
-            <span className="text-lg font-bold leading-none" style={{ color: "#2d2d2d" }}>
-              {band}
-            </span>
-          </div>
-        )}
-      </div>
-      <div className="px-4 py-4">
-        {showLoading ? (
-          <div className="space-y-3">
-            <div style={{ height: 48, backgroundColor: "#f0f0f0" }} />
-            <div style={{ height: 48, backgroundColor: "#f0f0f0" }} />
-            <div style={{ height: 48, backgroundColor: "#f0f0f0" }} />
-          </div>
-        ) : showEmpty ? (
-          <div className="flex min-h-[120px] items-center justify-center">
-            <p className="text-sm italic" style={{ color: "#7a7a7a" }}>
-              {t("Press Check to receive your writing assessment.")}
+          )}
+          <span aria-hidden="true" className="text-muted-foreground">
+            {open ? "▾" : "▸"}
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div className="px-4 py-4">
+          {showLoading ? (
+            <div className="space-y-3">
+              <div style={{ height: 48, backgroundColor: "#f0f0f0" }} />
+              <div style={{ height: 48, backgroundColor: "#f0f0f0" }} />
+              <div style={{ height: 48, backgroundColor: "#f0f0f0" }} />
+            </div>
+          ) : showEmpty ? (
+            <div className="flex min-h-[120px] items-center justify-center">
+              <p className="text-sm italic" style={{ color: "#7a7a7a" }}>
+                {t("Press Check to receive your writing assessment.")}
+              </p>
+            </div>
+          ) : showError ? (
+            <p className="text-sm italic text-muted-foreground">
+              {t("Could not generate AI feedback. Press Check to try again.")}
             </p>
-          </div>
-        ) : showError ? (
-          <p className="text-sm italic text-muted-foreground">
-            {t("Could not generate AI feedback. Press Check to try again.")}
-          </p>
-        ) : feedback ? (
-          <div className="space-y-3">
-            <FeedbackBlock
-              title={t("What you are doing well")}
-              accentColor="#2a9d8f"
-              tintColor="rgba(42, 157, 143, 0.04)"
-              body={feedback.strengths}
-            />
-            <FeedbackBlock
-              title={t("What to prioritise")}
-              accentColor="#e67e22"
-              tintColor="rgba(230, 126, 34, 0.04)"
-              body={feedback.priorities}
-              dividedItems
-            />
-            <FeedbackBlock
-              title={t("Next step")}
-              accentColor="#2d2d2d"
-              tintColor="rgba(0, 0, 0, 0.02)"
-              body={feedback.nextStep}
-              emphasized
-            />
-          </div>
-        ) : null}
-      </div>
+          ) : feedback ? (
+            <div className="space-y-3">
+              <FeedbackBlock
+                title={t("What you are doing well")}
+                accentColor="#2a9d8f"
+                tintColor="rgba(42, 157, 143, 0.04)"
+                body={feedback.strengths}
+              />
+              <FeedbackBlock
+                title={t("What to prioritise")}
+                accentColor="#e67e22"
+                tintColor="rgba(230, 126, 34, 0.04)"
+                body={feedback.priorities}
+                dividedItems
+              />
+              <FeedbackBlock
+                title={t("Next step")}
+                accentColor="#2d2d2d"
+                tintColor="rgba(0, 0, 0, 0.02)"
+                body={feedback.nextStep}
+                emphasized
+              />
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

@@ -45,6 +45,7 @@ export function VocabularyBuilderCard({
   taskId?: string;
 }) {
   const [bank, setBank] = useState<VocabBankEntry[]>([]);
+  const [open, setOpen] = useState(true);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -91,128 +92,143 @@ export function VocabularyBuilderCard({
 
   return (
     <div className="border border-border bg-card">
-      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <div className="text-sm font-semibold text-foreground">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between border-b border-border px-4 py-2.5 text-left"
+      >
+        <span className="text-sm font-semibold text-foreground">
           <T>Vocabulary Builder</T>
-        </div>
-        <span className="text-xs text-muted-foreground">
-          {bank.length} <T>saved</T>
         </span>
-      </div>
+        <span className="inline-flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {bank.length} <T>saved</T>
+          </span>
+          <span aria-hidden="true" className="text-muted-foreground">
+            {open ? "▾" : "▸"}
+          </span>
+        </span>
+      </button>
 
-      <div className="px-4 py-4">
-        {vocabCards.length === 0 ? (
-          <p className="text-xs italic text-muted-foreground">
-            <T>Run a check to see suggested vocabulary upgrades.</T>
-          </p>
-        ) : (
-          <>
-            <div className="mb-2 text-xs font-medium text-foreground">
-              <T>From this text</T>
-            </div>
-            <ul className="space-y-2">
-              {vocabCards.map((c, i) => {
-                const id = entryId(c.original, c.suggestion);
-                const saved = savedIds.has(id);
-                return (
-                  <li
-                    key={i}
-                    className="flex items-start justify-between gap-2 border border-border/60 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm text-foreground">
-                        <span className="line-through text-muted-foreground">{c.original}</span>{" "}
-                        <span className="font-semibold" style={{ color: "#2a9d8f" }}>
-                          → {c.suggestion}
-                        </span>
-                      </div>
-                      {c.why && <div className="mt-0.5 text-xs text-muted-foreground">{c.why}</div>}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => save(c)}
-                      disabled={saved}
-                      title={saved ? "Saved" : "Save to word bank"}
-                      className={`shrink-0 rounded-sm p-1.5 ${
-                        saved
-                          ? "text-teal cursor-default"
-                          : "text-muted-foreground hover:text-teal hover:bg-teal-soft"
-                      }`}
-                    >
-                      {saved ? (
-                        <BookmarkCheck className="h-4 w-4" />
-                      ) : (
-                        <Bookmark className="h-4 w-4" />
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        )}
-
-        {bank.length > 0 && (
-          <div className="mt-4 border-t border-border pt-3">
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="flex w-full items-center justify-between text-xs font-medium text-foreground hover:text-teal"
-            >
-              <span>
-                <T>Your word bank</T> ({bank.length})
-              </span>
-              {expanded ? (
-                <ChevronUp className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
-              )}
-            </button>
-
-            {expanded && (
-              <>
-                <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto">
-                  {bank.map((e) => (
+      {open && (
+        <div className="px-4 py-4">
+          {vocabCards.length === 0 ? (
+            <p className="text-xs italic text-muted-foreground">
+              <T>Run a check to see suggested vocabulary upgrades.</T>
+            </p>
+          ) : (
+            <>
+              <div className="mb-2 text-xs font-medium text-foreground">
+                <T>From this text</T>
+              </div>
+              <ul className="space-y-2">
+                {vocabCards.map((c, i) => {
+                  const id = entryId(c.original, c.suggestion);
+                  const saved = savedIds.has(id);
+                  return (
                     <li
-                      key={e.id}
-                      className="flex items-start justify-between gap-2 px-2 py-1.5 text-xs hover:bg-muted/50"
+                      key={i}
+                      className="flex items-start justify-between gap-2 border border-border/60 px-3 py-2"
                     >
                       <div className="min-w-0">
-                        <div className="text-foreground">
-                          <span className="line-through text-muted-foreground">{e.term}</span>{" "}
+                        <div className="text-sm text-foreground">
+                          <span className="line-through text-muted-foreground">{c.original}</span>{" "}
                           <span className="font-semibold" style={{ color: "#2a9d8f" }}>
-                            → {e.suggestion}
+                            → {c.suggestion}
                           </span>
                         </div>
-                        {e.note && (
-                          <div className="mt-0.5 text-muted-foreground line-clamp-2">{e.note}</div>
+                        {c.why && (
+                          <div className="mt-0.5 text-xs text-muted-foreground">{c.why}</div>
                         )}
                       </div>
                       <button
                         type="button"
-                        onClick={() => remove(e.id)}
-                        title="Remove"
-                        className="shrink-0 rounded-sm p-1 text-muted-foreground hover:text-destructive"
+                        onClick={() => save(c)}
+                        disabled={saved}
+                        title={saved ? "Saved" : "Save to word bank"}
+                        className={`shrink-0 rounded-sm p-1.5 ${
+                          saved
+                            ? "text-teal cursor-default"
+                            : "text-muted-foreground hover:text-teal hover:bg-teal-soft"
+                        }`}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        {saved ? (
+                          <BookmarkCheck className="h-4 w-4" />
+                        ) : (
+                          <Bookmark className="h-4 w-4" />
+                        )}
                       </button>
                     </li>
-                  ))}
-                </ul>
-                <div className="mt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={clearAll}
-                    className="text-[11px] text-muted-foreground hover:text-destructive"
-                  >
-                    <T>Clear word bank</T>
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+
+          {bank.length > 0 && (
+            <div className="mt-4 border-t border-border pt-3">
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="flex w-full items-center justify-between text-xs font-medium text-foreground hover:text-teal"
+              >
+                <span>
+                  <T>Your word bank</T> ({bank.length})
+                </span>
+                {expanded ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+              </button>
+
+              {expanded && (
+                <>
+                  <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto">
+                    {bank.map((e) => (
+                      <li
+                        key={e.id}
+                        className="flex items-start justify-between gap-2 px-2 py-1.5 text-xs hover:bg-muted/50"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-foreground">
+                            <span className="line-through text-muted-foreground">{e.term}</span>{" "}
+                            <span className="font-semibold" style={{ color: "#2a9d8f" }}>
+                              → {e.suggestion}
+                            </span>
+                          </div>
+                          {e.note && (
+                            <div className="mt-0.5 text-muted-foreground line-clamp-2">
+                              {e.note}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => remove(e.id)}
+                          title="Remove"
+                          className="shrink-0 rounded-sm p-1 text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={clearAll}
+                      className="text-[11px] text-muted-foreground hover:text-destructive"
+                    >
+                      <T>Clear word bank</T>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
