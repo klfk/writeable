@@ -19,7 +19,7 @@ function FoldIndicator({ open }: { open: boolean }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-border bg-[#3a3a3a] text-white shadow-sm"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-[#c9c9c9] bg-white text-[#6f6f6f] shadow-sm"
     >
       <Icon className="h-4 w-4" strokeWidth={2.4} />
     </span>
