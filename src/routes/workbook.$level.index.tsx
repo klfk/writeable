@@ -59,6 +59,7 @@ function loadWriting(level: WorkbookLevel): WritingEntry[] {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       const data = JSON.parse(raw);
+      if (typeof data?.userText !== "string" || data.userText.trim().length === 0) continue;
       const task = tasksByLevel[level].find((t) => t.id === taskId);
       if (!task) continue;
       const cards = data?.correctionContext?.cards ?? [];
@@ -159,9 +160,7 @@ function WorkbookPage() {
             <h2 className="text-sm font-semibold text-foreground">{t("Your Writing")}</h2>
           </div>
           {writing.length === 0 ? (
-            <div className="px-5 py-4 text-xs italic text-muted-foreground">
-              {t("Your completed and in-progress tasks will appear here.")}
-            </div>
+            <div aria-hidden="true" className="min-h-6" />
           ) : (
             <ul className="divide-y divide-border">
               {writing.map((w) => (
