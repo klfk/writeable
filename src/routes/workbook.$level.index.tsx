@@ -222,19 +222,15 @@ function TaskRow({ task, level }: { task: Task; level: WorkbookLevel }) {
           </div>
           <div className="mt-1 grid grid-rows-[0fr] opacity-60 transition-all duration-300 ease-out group-hover:mt-3 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus-within:mt-3 group-focus-within:grid-rows-[1fr] group-focus-within:opacity-100 max-sm:mt-3 max-sm:grid-rows-[1fr] max-sm:opacity-100">
             <div className="overflow-hidden">
-              <p className="text-xs leading-relaxed text-foreground/80 blur-[2px] transition-[filter] duration-300 group-hover:blur-0 group-focus-within:blur-0 max-sm:blur-0">
-                {tr.prompt}
-              </p>
+              <p className="text-xs leading-relaxed text-foreground/80">{tr.prompt}</p>
               {tr.bullets.length > 0 && (
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-foreground/80 blur-[2px] transition-[filter] duration-300 group-hover:blur-0 group-focus-within:blur-0 max-sm:blur-0">
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-foreground/80">
                   {tr.bullets.map((b, i) => (
                     <li key={i}>{b}</li>
                   ))}
                 </ul>
               )}
-              <p className="mt-2 text-xs font-semibold text-foreground blur-[2px] transition-[filter] duration-300 group-hover:blur-0 group-focus-within:blur-0 max-sm:blur-0">
-                {tr.wordCount}
-              </p>
+              <p className="mt-2 text-xs font-semibold text-foreground">{tr.wordCount}</p>
             </div>
           </div>
         </div>
