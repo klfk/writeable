@@ -26,6 +26,13 @@ Fill `.env` with Supabase values and `AI_GATEWAY_API_KEY` before using AI feedba
 
 ## Backend automation
 
+MCP connectors are configured in `.mcp.json` for:
+
+- Supabase, scoped to project `iiskizsngljnosnehbeu`
+- Cloudflare Docs
+- Cloudflare Workers Builds
+- Cloudflare Workers Observability
+
 Supabase migrations live in `supabase/migrations/` and are applied by the GitHub Actions workflow in `.github/workflows/supabase-migrations.yml`.
 
 Configure these in GitHub before running it:
