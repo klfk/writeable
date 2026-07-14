@@ -15,7 +15,7 @@ export const Route = createFileRoute("/test")({
 });
 
 const TEST_TASK_ID = "b-email-present";
-const TEST_URL = "/workbook/beginner/task/b-email-present";
+const TEST_URL = "/workbook/beginner/task/b-email-present?demo=1";
 
 const TEST_TEXT = `Hi Blake,
 
@@ -49,7 +49,7 @@ function prepareFullCorrectionTest() {
   localStorage.setItem("app_lang", "en");
   localStorage.setItem("learning_plugins_enabled_v1", JSON.stringify(allPlugins));
   localStorage.setItem("display_settings_v1", JSON.stringify(allDisplaySettings));
-  localStorage.removeItem(`task_save_${TEST_TASK_ID}`);
+  localStorage.removeItem(`task_save_demo_${TEST_TASK_ID}`);
   sessionStorage.setItem(`demo_prefill_${TEST_TASK_ID}`, TEST_TEXT);
 }
 

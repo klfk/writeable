@@ -192,12 +192,21 @@ type TaskSave = {
 const storageTaskId = (taskId: string, lang: string) =>
   lang === "en" ? taskId : `${lang}_${taskId}`;
 const saveKey = (taskId: string) => `task_save_${taskId}`;
+const isOldDemoPrefill = (taskId: string, text: string | undefined) =>
+  taskId === "b-email-present" &&
+  !!text &&
+  text.includes("Yesterday I go to shopping because I need buy present") &&
+  text.includes("I buyed a blue scarf");
 
 function TaskDetailPage() {
   const data = Route.useLoaderData() as { level: WorkbookLevel; task: Task };
   const { level, task } = data;
   const { lang, t } = useLang();
   const activeTaskId = storageTaskId(task.id, lang);
+  const isDemoMode =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("demo") === "1";
+  const saveTaskId = isDemoMode ? `demo_${activeTaskId}` : activeTaskId;
   const tr = getTaskForLanguage(level, task.id, lang) ?? task;
   const { settings, isPluginEnabled } = useSettings();
   const correctionCtx = useCorrectionContext();
@@ -260,7 +269,7 @@ function TaskDetailPage() {
 
   // Build current snapshot (read fresh state each call)
   const buildSnapshot = (): TaskSave => ({
-    taskId: activeTaskId,
+    taskId: saveTaskId,
     savedAt: new Date().toISOString(),
     userText: text,
     correctionContext: {
@@ -285,10 +294,10 @@ function TaskDetailPage() {
     try {
       const snap = snapshotRef.current;
       if (!snap) return;
-      localStorage.setItem(saveKey(activeTaskId), JSON.stringify(snap));
+      localStorage.setItem(saveKey(saveTaskId), JSON.stringify(snap));
       setSaveStatus("saved");
-      // Fire-and-forget cloud sync; no-op when signed out.
-      void pushTaskSave(activeTaskId);
+      // Fire-and-forget cloud sync; no-op when signed out. Demo runs stay local.
+      if (!isDemoMode) void pushTaskSave(activeTaskId);
     } catch {
       setSaveStatus("error");
     }
@@ -332,10 +341,10 @@ function TaskDetailPage() {
     let demoTextToCheck: string | null = null;
     try {
       const demoKey = `demo_prefill_${activeTaskId}`;
-      const demoText = typeof window !== "undefined" ? sessionStorage.getItem(demoKey) : null;
-      const raw = localStorage.getItem(saveKey(activeTaskId));
+      const demoText =
+        isDemoMode && typeof window !== "undefined" ? sessionStorage.getItem(demoKey) : null;
+      const raw = localStorage.getItem(saveKey(saveTaskId));
       if (demoText) {
-        localStorage.removeItem(saveKey(activeTaskId));
         setText(demoText);
         correctionCtx.setUserText(demoText);
         setSaveStatus("unsaved");
@@ -343,39 +352,44 @@ function TaskDetailPage() {
         demoTextToCheck = demoText;
       } else if (raw) {
         const save = JSON.parse(raw) as TaskSave;
-        setText(save.userText ?? "");
-        if (save.correctionContext) {
-          correctionCtx.setUserText(save.userText ?? "");
-          correctionCtx.setHighlights(save.correctionContext.highlights ?? []);
-          correctionCtx.setCards(save.correctionContext.cards ?? []);
-          correctionCtx.setSuggestions(save.correctionContext.suggestions ?? []);
-          correctionCtx.setVocabularyNotes(save.correctionContext.vocabularyNotes ?? []);
-          correctionCtx.setRewriteAttempt(save.correctionContext.rewriteAttempt ?? null);
-          correctionCtx.setAiFeedback(save.correctionContext.aiFeedback ?? null);
-          if (save.correctionContext.aiFeedback) setAiFeedbackStatus("done");
-        }
-        if (save.checkDone) {
-          if (inlineOn) {
-            const issues: CheckIssue[] = (save.correctionContext?.highlights ?? []).map((h) => ({
-              original: h.original,
-              type: h.type,
-            }));
-            setCheck({ status: "done", issues });
-          } else {
-            setCheck({ status: "disabled" });
+        if (!isDemoMode && isOldDemoPrefill(activeTaskId, save.userText)) {
+          localStorage.removeItem(saveKey(activeTaskId));
+          setText("");
+        } else {
+          setText(save.userText ?? "");
+          if (save.correctionContext) {
+            correctionCtx.setUserText(save.userText ?? "");
+            correctionCtx.setHighlights(save.correctionContext.highlights ?? []);
+            correctionCtx.setCards(save.correctionContext.cards ?? []);
+            correctionCtx.setSuggestions(save.correctionContext.suggestions ?? []);
+            correctionCtx.setVocabularyNotes(save.correctionContext.vocabularyNotes ?? []);
+            correctionCtx.setRewriteAttempt(save.correctionContext.rewriteAttempt ?? null);
+            correctionCtx.setAiFeedback(save.correctionContext.aiFeedback ?? null);
+            if (save.correctionContext.aiFeedback) setAiFeedbackStatus("done");
           }
-          if (cardsNeeded) {
-            setCards({ status: "done", cards: save.correctionContext?.cards ?? [] });
+          if (save.checkDone) {
+            if (inlineOn) {
+              const issues: CheckIssue[] = (save.correctionContext?.highlights ?? []).map((h) => ({
+                original: h.original,
+                type: h.type,
+              }));
+              setCheck({ status: "done", issues });
+            } else {
+              setCheck({ status: "disabled" });
+            }
+            if (cardsNeeded) {
+              setCards({ status: "done", cards: save.correctionContext?.cards ?? [] });
+            }
           }
+          if (typeof save.relevanceScore === "number") {
+            setScore({ status: "done", score: save.relevanceScore });
+          }
+          setCefrScore(typeof save.cefrScore === "number" ? save.cefrScore : null);
+          setProgressHistory(Array.isArray(save.progressHistory) ? save.progressHistory : []);
+          setTimerElapsed(typeof save.timerElapsed === "number" ? save.timerElapsed : 0);
+          setChatHistory(Array.isArray(save.chatHistory) ? save.chatHistory : []);
+          setSaveStatus("saved");
         }
-        if (typeof save.relevanceScore === "number") {
-          setScore({ status: "done", score: save.relevanceScore });
-        }
-        setCefrScore(typeof save.cefrScore === "number" ? save.cefrScore : null);
-        setProgressHistory(Array.isArray(save.progressHistory) ? save.progressHistory : []);
-        setTimerElapsed(typeof save.timerElapsed === "number" ? save.timerElapsed : 0);
-        setChatHistory(Array.isArray(save.chatHistory) ? save.chatHistory : []);
-        setSaveStatus("saved");
       }
     } catch {
       // ignore corrupted save
@@ -397,7 +411,7 @@ function TaskDetailPage() {
       if (loadTimer != null) window.clearTimeout(loadTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTaskId]);
+  }, [activeTaskId, isDemoMode, saveTaskId]);
 
   // Auto-save: typing & chat are debounced; other state changes save immediately.
   useEffect(() => {
@@ -681,6 +695,11 @@ function TaskDetailPage() {
                     className="block min-h-[320px] w-full resize-y bg-card p-4 text-sm leading-6 text-foreground outline-none"
                   />
                 )}
+                {text.trim().length === 0 && (
+                  <div className="border-t border-border bg-muted/30 px-4 py-2 text-xs italic text-muted-foreground">
+                    {t("You haven't written anything yet.")}
+                  </div>
+                )}
                 <div className="bg-teal px-4 py-2 text-xs text-teal-foreground">
                   {words} {t("words entered (the word count for this task is about")}{" "}
                   {tr.wordCount.match(/\d+/)?.[0] ?? "25"} {t("words).")}
@@ -782,7 +801,15 @@ function TaskDetailPage() {
 }
 
 function HighlightedText({ text, issues }: { text: string; issues: CheckIssue[] }) {
+  const { t } = useLang();
   const segments = useMemo(() => buildSegments(text, issues), [text, issues]);
+  if (text.trim().length === 0) {
+    return (
+      <div className="block min-h-[320px] w-full bg-card p-4 text-sm italic leading-6 text-muted-foreground">
+        {t("You haven't written anything yet.")}
+      </div>
+    );
+  }
   return (
     <div className="block min-h-[320px] w-full whitespace-pre-wrap bg-card p-4 text-sm leading-6 text-foreground">
       {segments.map((seg, i) =>
