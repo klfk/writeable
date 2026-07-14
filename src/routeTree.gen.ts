@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TestRouteImport } from './routes/test'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
@@ -19,6 +20,11 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkbookLevelIndexRouteImport } from './routes/workbook.$level.index'
 import { Route as WorkbookLevelTaskTaskIdRouteImport } from './routes/workbook.$level.task.$taskId'
 
+const TestRoute = TestRouteImport.update({
+  id: '/test',
+  path: '/test',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/terms': typeof TermsRoute
+  '/test': typeof TestRoute
   '/workbook/$level/': typeof WorkbookLevelIndexRoute
   '/workbook/$level/task/$taskId': typeof WorkbookLevelTaskTaskIdRoute
 }
@@ -84,6 +91,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/terms': typeof TermsRoute
+  '/test': typeof TestRoute
   '/workbook/$level': typeof WorkbookLevelIndexRoute
   '/workbook/$level/task/$taskId': typeof WorkbookLevelTaskTaskIdRoute
 }
@@ -96,6 +104,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/terms': typeof TermsRoute
+  '/test': typeof TestRoute
   '/workbook/$level/': typeof WorkbookLevelIndexRoute
   '/workbook/$level/task/$taskId': typeof WorkbookLevelTaskTaskIdRoute
 }
@@ -109,6 +118,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/settings'
     | '/terms'
+    | '/test'
     | '/workbook/$level/'
     | '/workbook/$level/task/$taskId'
   fileRoutesByTo: FileRoutesByTo
@@ -120,6 +130,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/settings'
     | '/terms'
+    | '/test'
     | '/workbook/$level'
     | '/workbook/$level/task/$taskId'
   id:
@@ -131,6 +142,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/settings'
     | '/terms'
+    | '/test'
     | '/workbook/$level/'
     | '/workbook/$level/task/$taskId'
   fileRoutesById: FileRoutesById
@@ -143,12 +155,20 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   SettingsRoute: typeof SettingsRoute
   TermsRoute: typeof TermsRoute
+  TestRoute: typeof TestRoute
   WorkbookLevelIndexRoute: typeof WorkbookLevelIndexRoute
   WorkbookLevelTaskTaskIdRoute: typeof WorkbookLevelTaskTaskIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/test': {
+      id: '/test'
+      path: '/test'
+      fullPath: '/test'
+      preLoaderRoute: typeof TestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/terms': {
       id: '/terms'
       path: '/terms'
@@ -223,6 +243,7 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   SettingsRoute: SettingsRoute,
   TermsRoute: TermsRoute,
+  TestRoute: TestRoute,
   WorkbookLevelIndexRoute: WorkbookLevelIndexRoute,
   WorkbookLevelTaskTaskIdRoute: WorkbookLevelTaskTaskIdRoute,
 }
