@@ -1902,7 +1902,7 @@ function SaveStatusIndicator({ status }: { status: SaveStatus }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-xs italic text-muted-foreground">
       Saved{" "}
-      <span aria-hidden="true" style={{ color: "#2a9d8f" }}>
+      <span aria-hidden="true" style={{ color: "#2a9d8f", fontSize: "3em", lineHeight: 1 }}>
         ☁
       </span>
     </span>
