@@ -15,40 +15,6 @@ export type VocabBankEntry = {
 const BANK_KEY = "vocab_bank_v1";
 const MIN_TEXT_SUGGESTIONS = 3;
 
-const COMMON_WORDS = new Set([
-  "about",
-  "after",
-  "also",
-  "and",
-  "are",
-  "because",
-  "but",
-  "can",
-  "could",
-  "das",
-  "der",
-  "die",
-  "ein",
-  "eine",
-  "for",
-  "from",
-  "have",
-  "ich",
-  "ist",
-  "mit",
-  "not",
-  "pour",
-  "que",
-  "the",
-  "und",
-  "une",
-  "was",
-  "werden",
-  "will",
-  "with",
-  "you",
-]);
-
 type VocabSuggestion = {
   id: string;
   term: string;
@@ -56,6 +22,136 @@ type VocabSuggestion = {
   note: string;
   source: "correction" | "text";
 };
+
+type UpgradeRule = {
+  term: string;
+  suggestion: string;
+  note: string;
+  pattern?: RegExp;
+};
+
+const TEXT_UPGRADE_RULES: UpgradeRule[] = [
+  {
+    term: "I want",
+    suggestion: "I would like",
+    note: "A more polite and natural phrase for requests, emails, and formal writing.",
+  },
+  {
+    term: "a lot",
+    suggestion: "considerably",
+    note: "More precise than “a lot” when describing degree or amount.",
+  },
+  {
+    term: "very",
+    suggestion: "particularly",
+    note: "A stronger adverb that often sounds more specific than “very”.",
+  },
+  {
+    term: "really",
+    suggestion: "genuinely",
+    note: "More expressive than “really” when you want to sound sincere.",
+  },
+  {
+    term: "good",
+    suggestion: "effective",
+    note: "A clearer upgrade when describing something that works well.",
+  },
+  {
+    term: "nice",
+    suggestion: "thoughtful",
+    note: "More specific than “nice” when describing a gesture, person, or detail.",
+  },
+  {
+    term: "bad",
+    suggestion: "unhelpful",
+    note: "More precise than “bad” when describing a problem or result.",
+  },
+  {
+    term: "big",
+    suggestion: "significant",
+    note: "More academic and precise than “big” for importance or impact.",
+  },
+  {
+    term: "small",
+    suggestion: "minor",
+    note: "More precise than “small” when describing a limited issue or detail.",
+  },
+  {
+    term: "important",
+    suggestion: "essential",
+    note: "Stronger than “important” when something is necessary.",
+  },
+  {
+    term: "thing",
+    suggestion: "point",
+    note: "More specific than “thing” when referring to an idea or argument.",
+  },
+  {
+    term: "things",
+    suggestion: "aspects",
+    note: "More specific than “things” when referring to parts of a topic.",
+  },
+  {
+    term: "get",
+    suggestion: "receive",
+    note: "More formal than “get” when something is given or sent to you.",
+  },
+  {
+    term: "make",
+    suggestion: "create",
+    note: "Often more precise than “make” when producing something new.",
+  },
+  {
+    term: "help",
+    suggestion: "support",
+    note: "A stronger option when describing assistance or benefits.",
+  },
+  {
+    term: "use",
+    suggestion: "apply",
+    note: "More precise than “use” when putting a method or idea into practice.",
+  },
+  {
+    term: "tell",
+    suggestion: "explain",
+    note: "More precise when the text gives reasons, details, or clarification.",
+  },
+  {
+    term: "show",
+    suggestion: "demonstrate",
+    note: "A stronger verb for evidence, examples, or proof.",
+  },
+  {
+    term: "think",
+    suggestion: "believe",
+    note: "More confident than “think” when stating an opinion.",
+  },
+  {
+    term: "like",
+    suggestion: "appreciate",
+    note: "More polished than “like” when expressing positive feeling or gratitude.",
+  },
+  {
+    term: "many",
+    suggestion: "numerous",
+    note: "A more formal option when describing quantity.",
+  },
+  {
+    term: "people",
+    suggestion: "individuals",
+    note: "More formal than “people” in essays and reports.",
+  },
+  {
+    term: "problem",
+    suggestion: "challenge",
+    note: "Often more constructive than “problem” in explanations or reflections.",
+  },
+  {
+    term: "change",
+    suggestion: "improve",
+    note: "Use this when the intended change makes something better.",
+  },
+];
 
 function FoldIndicator({ open }: { open: boolean }) {
   const Icon = open ? ChevronDown : ChevronLeft;
@@ -92,8 +188,16 @@ function entryId(term: string, suggestion: string) {
   return `${term.toLowerCase().trim()}::${suggestion.toLowerCase().trim()}`;
 }
 
-function textSuggestionId(term: string) {
-  return entryId(term, term);
+function textSuggestionId(term: string, suggestion: string) {
+  return entryId(term, suggestion);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function rulePattern(rule: UpgradeRule) {
+  return rule.pattern ?? new RegExp(`\\b${escapeRegExp(rule.term)}\\b`, "giu");
 }
 
 function buildTextSuggestions(
@@ -103,28 +207,25 @@ function buildTextSuggestions(
 ): VocabSuggestion[] {
   if (limit <= 0) return [];
 
-  const counts = new Map<string, { term: string; count: number }>();
-  for (const match of text.matchAll(/[\p{L}][\p{L}'’-]{2,}/gu)) {
-    const term = match[0].replace(/[’']/g, "'");
-    const key = term.toLocaleLowerCase();
-    if (COMMON_WORDS.has(key) || takenIds.has(textSuggestionId(term))) continue;
-    const current = counts.get(key);
-    counts.set(key, { term: current?.term ?? term, count: (current?.count ?? 0) + 1 });
-  }
-
-  return [...counts.values()]
-    .sort(
-      (a, b) => b.count - a.count || b.term.length - a.term.length || a.term.localeCompare(b.term),
+  return TEXT_UPGRADE_RULES.map((rule, index) => {
+    const matches = [...text.matchAll(rulePattern(rule))];
+    return {
+      rule,
+      index,
+      count: matches.length,
+      firstIndex: matches[0]?.index ?? Number.MAX_SAFE_INTEGER,
+    };
+  })
+    .filter(
+      ({ rule, count }) => count > 0 && !takenIds.has(textSuggestionId(rule.term, rule.suggestion)),
     )
+    .sort((a, b) => b.count - a.count || a.firstIndex - b.firstIndex || a.index - b.index)
     .slice(0, limit)
-    .map(({ term, count }) => ({
-      id: textSuggestionId(term),
-      term,
-      suggestion: term,
-      note:
-        count > 1
-          ? `You used this word ${count} times. Save it and practise using it in new sentences.`
-          : "Useful word from your text. Save it and practise using it in new sentences.",
+    .map(({ rule }) => ({
+      id: textSuggestionId(rule.term, rule.suggestion),
+      term: rule.term,
+      suggestion: rule.suggestion,
+      note: rule.note,
       source: "text",
     }));
 }
@@ -229,7 +330,7 @@ export function VocabularyBuilderCard({
           ) : (
             <>
               <div className="mb-2 text-xs font-medium text-foreground">
-                <T>From this text</T>
+                <T>Better fits for this text</T>
               </div>
               <ul className="space-y-2">
                 {suggestions.map((suggestion) => {
@@ -241,20 +342,12 @@ export function VocabularyBuilderCard({
                     >
                       <div className="min-w-0">
                         <div className="text-sm text-foreground">
-                          {suggestion.source === "correction" ? (
-                            <>
-                              <span className="line-through text-muted-foreground">
-                                {suggestion.term}
-                              </span>{" "}
-                              <span className="font-semibold" style={{ color: "#2a9d8f" }}>
-                                → {suggestion.suggestion}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="font-semibold" style={{ color: "#2a9d8f" }}>
-                              {suggestion.term}
-                            </span>
-                          )}
+                          <span className="line-through text-muted-foreground">
+                            {suggestion.term}
+                          </span>{" "}
+                          <span className="font-semibold" style={{ color: "#2a9d8f" }}>
+                            → {suggestion.suggestion}
+                          </span>
                         </div>
                         {suggestion.note && (
                           <div className="mt-0.5 text-xs text-muted-foreground">
