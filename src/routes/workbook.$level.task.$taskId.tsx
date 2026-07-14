@@ -869,7 +869,7 @@ function FeedbackContent({
     const parts: { type: ErrorType; count: number }[] = (
       ["grammar", "style", "vocabulary"] as ErrorType[]
     )
-      .map((t) => ({ type: t, count: counts[t] }))
+      .map((type) => ({ type, count: counts[type] }))
       .filter((p) => p.count > 0);
 
     return (
@@ -887,16 +887,16 @@ function FeedbackContent({
           ))}
         </p>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {(["grammar", "style", "vocabulary"] as ErrorType[]).map((t) => (
-            <span key={t} className="inline-flex items-center gap-1.5">
+          {(["grammar", "style", "vocabulary"] as ErrorType[]).map((type) => (
+            <span key={type} className="inline-flex items-center gap-1.5">
               <span
                 className="inline-block h-3 w-3"
                 style={{
-                  backgroundColor: TYPE_STYLES[t].bg,
-                  borderBottom: `1px solid ${TYPE_STYLES[t].border}`,
+                  backgroundColor: TYPE_STYLES[type].bg,
+                  borderBottom: `1px solid ${TYPE_STYLES[type].border}`,
                 }}
               />
-              {t(TYPE_STYLES[t].label)}
+              {t(TYPE_STYLES[type].label)}
             </span>
           ))}
         </div>
