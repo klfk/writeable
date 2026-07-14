@@ -41,12 +41,6 @@ export const allSections: Section[] = [...workbooks, ...testZone];
 
 export type TaskLanguage = "en" | "de" | "fr";
 
-const targetName: Record<TaskLanguage, string> = {
-  en: "English",
-  de: "German",
-  fr: "French",
-};
-
 const sectionLabelsByLanguage: Record<TaskLanguage, Record<WorkbookLevel, string>> = {
   en: {
     beginner: "Beginner",
@@ -80,44 +74,706 @@ const sectionLabelsByLanguage: Record<TaskLanguage, Record<WorkbookLevel, string
   },
 };
 
-function taskKind(task: Task): string {
-  return task.group || task.title.split(":")[0] || "Writing";
+type LocalizedTaskTemplate = {
+  title: string;
+  subtitle: string;
+  prompt: string;
+  bullets: string[];
+  badge?: string;
+};
+
+type LocalizedTaskType =
+  | "email"
+  | "story"
+  | "article"
+  | "formalLetter"
+  | "essay"
+  | "review"
+  | "report"
+  | "chart"
+  | "process"
+  | "proposal"
+  | "coverLetter"
+  | "description"
+  | "opinion"
+  | "letter";
+
+function hashTaskId(id: string): number {
+  return [...id].reduce((sum, char) => sum + char.charCodeAt(0), 0);
 }
 
-function wordMinimum(task: Task): string {
-  return task.wordCount.match(/\d+/)?.[0] ?? "80";
+function pickTemplate(templates: LocalizedTaskTemplate[], taskId: string): LocalizedTaskTemplate {
+  return templates[hashTaskId(taskId) % templates.length];
 }
+
+function localizedTaskType(task: Task): LocalizedTaskType {
+  const haystack = `${task.group} ${task.title} ${task.badge ?? ""}`.toLowerCase();
+
+  if (haystack.includes("process")) return "process";
+  if (haystack.includes("chart") || haystack.includes("graph") || haystack.includes("table")) {
+    return "chart";
+  }
+  if (haystack.includes("proposal")) return "proposal";
+  if (haystack.includes("cover letter")) return "coverLetter";
+  if (haystack.includes("formal letter") || haystack.includes("complaint")) return "formalLetter";
+  if (haystack.includes("report")) return "report";
+  if (haystack.includes("review")) return "review";
+  if (haystack.includes("essay")) return "essay";
+  if (haystack.includes("article")) return "article";
+  if (haystack.includes("story")) return "story";
+  if (haystack.includes("description")) return "description";
+  if (haystack.includes("opinion")) return "opinion";
+  if (haystack.includes("letter")) return "letter";
+  return "email";
+}
+
+const localizedGroups: Record<TaskLanguage, Record<LocalizedTaskType, string>> = {
+  en: {
+    email: "Emails",
+    story: "Stories",
+    article: "Articles",
+    formalLetter: "Formal letters",
+    essay: "Essays",
+    review: "Reviews",
+    report: "Reports",
+    chart: "Task 1",
+    process: "Task 1",
+    proposal: "Proposals",
+    coverLetter: "Cover Letters",
+    description: "Descriptions",
+    opinion: "Opinions",
+    letter: "Letters",
+  },
+  de: {
+    email: "E-Mails",
+    story: "Geschichten",
+    article: "Artikel",
+    formalLetter: "Formelle Briefe",
+    essay: "Erörterungen",
+    review: "Rezensionen",
+    report: "Berichte",
+    chart: "Grafikbeschreibung",
+    process: "Prozessbeschreibung",
+    proposal: "Vorschläge",
+    coverLetter: "Bewerbungen",
+    description: "Beschreibungen",
+    opinion: "Meinungstexte",
+    letter: "Briefe",
+  },
+  fr: {
+    email: "E-mails",
+    story: "Récits",
+    article: "Articles",
+    formalLetter: "Lettres formelles",
+    essay: "Essais argumentés",
+    review: "Critiques",
+    report: "Rapports",
+    chart: "Analyse de document",
+    process: "Description de processus",
+    proposal: "Propositions",
+    coverLetter: "Candidatures",
+    description: "Descriptions",
+    opinion: "Textes d’opinion",
+    letter: "Lettres",
+  },
+};
+
+const wordCountsByLanguage: Record<TaskLanguage, Record<WorkbookLevel, string>> = {
+  en: {
+    beginner: "Write your answer in 25 words or more.",
+    intermediate: "Write 80–120 words.",
+    advanced: "Write 140–190 words.",
+    business: "Write 120–180 words.",
+    "just-for-fun": "Write 100–180 words.",
+    "ielts-academic": "Write at least 150 words for Task 1 or 250 words for Task 2.",
+    "ielts-general-training": "Write at least 150 words for Task 1 or 250 words for Task 2.",
+    "b2-first": "Write 140–190 words.",
+  },
+  de: {
+    beginner: "Schreibe mindestens 30 Wörter.",
+    intermediate: "Schreibe 80–120 Wörter.",
+    advanced: "Schreibe 140–190 Wörter.",
+    business: "Schreibe 120–180 Wörter.",
+    "just-for-fun": "Schreibe 100–180 Wörter.",
+    "ielts-academic": "Schreibe 170–220 Wörter im Stil einer TestDaF-Aufgabe.",
+    "ielts-general-training": "Schreibe 160–220 Wörter im Stil einer Goethe-Prüfungsaufgabe.",
+    "b2-first": "Schreibe 150–200 Wörter im Stil von telc Deutsch B2.",
+  },
+  fr: {
+    beginner: "Écris au moins 30 mots.",
+    intermediate: "Écris 80–120 mots.",
+    advanced: "Écris 140–190 mots.",
+    business: "Écris 120–180 mots.",
+    "just-for-fun": "Écris 100–180 mots.",
+    "ielts-academic": "Écris 170–220 mots dans un format proche du DELF B2.",
+    "ielts-general-training": "Écris 160–220 mots dans un format proche du DELF B1.",
+    "b2-first": "Écris 220–280 mots dans un format proche du DALF C1.",
+  },
+};
+
+const localizedTemplates: Record<
+  Exclude<TaskLanguage, "en">,
+  Record<LocalizedTaskType, LocalizedTaskTemplate[]>
+> = {
+  de: {
+    email: [
+      {
+        title: "Eine E-Mail über ein Geschenk",
+        subtitle: "Du hast ein Geschenk gekauft und schreibst einer Freundin.",
+        prompt:
+          "Du hast gestern ein Geschenk gekauft. Schreibe eine E-Mail an deine Freundin Lena.",
+        bullets: [
+          "Schreibe, für wen das Geschenk ist",
+          "Beschreibe das Geschenk",
+          "Erkläre, warum du es ausgewählt hast",
+        ],
+      },
+      {
+        title: "Eine E-Mail über einen neuen Kurs",
+        subtitle: "Du nimmst seit Kurzem an einem Kurs teil.",
+        prompt:
+          "Du besuchst seit einem Monat einen neuen Kurs. Schreibe eine E-Mail an deinen Freund Noah.",
+        bullets: [
+          "Beschreibe den Kurs",
+          "Erkläre, warum du mitmachst",
+          "Schlage vor, dass Noah auch kommt",
+        ],
+      },
+      {
+        title: "Eine Einladung per E-Mail",
+        subtitle: "Du möchtest jemanden zu einer Veranstaltung einladen.",
+        prompt:
+          "Du hast eine zusätzliche Eintrittskarte für eine Veranstaltung am Wochenende. Schreibe eine E-Mail an deine Freundin Mia.",
+        bullets: [
+          "Lade Mia ein",
+          "Beschreibe die Veranstaltung",
+          "Schlage einen Treffpunkt und eine Uhrzeit vor",
+        ],
+      },
+    ],
+    story: [
+      {
+        title: "Eine Geschichte über eine Überraschung",
+        subtitle: "Erzähle, was an einem ungewöhnlichen Tag passiert ist.",
+        prompt:
+          "Schreibe eine kurze Geschichte über einen Tag, der ganz normal begann und mit einer Überraschung endete.",
+        bullets: [
+          "Beschreibe den Anfang",
+          "Erkläre, was plötzlich anders war",
+          "Schreibe ein klares Ende",
+        ],
+      },
+      {
+        title: "Eine Geschichte über eine falsche Tür",
+        subtitle: "Jemand betritt einen Ort, an dem er nicht sein sollte.",
+        prompt:
+          "Schreibe eine kurze Geschichte, in der eine Person eine Tür öffnet und merkt, dass sie am falschen Ort ist.",
+        bullets: [
+          "Beschreibe den Ort",
+          "Zeige die Reaktion der Person",
+          "Erkläre, wie die Situation ausgeht",
+        ],
+      },
+    ],
+    article: [
+      {
+        title: "Ein Artikel über Freizeit",
+        subtitle: "Schreibe für eine Schüler- oder Kurswebseite.",
+        prompt:
+          "Schreibe einen Artikel darüber, wie Jugendliche ihre Freizeit sinnvoll verbringen können.",
+        bullets: [
+          "Nenne zwei Beispiele",
+          "Erkläre Vor- und Nachteile",
+          "Gib den Leserinnen und Lesern einen Tipp",
+        ],
+      },
+      {
+        title: "Ein Artikel über Lernen",
+        subtitle: "Gib praktische Ratschläge für andere Lernende.",
+        prompt: "Schreibe einen Artikel mit Tipps, wie man eine Fremdsprache im Alltag üben kann.",
+        bullets: [
+          "Beschreibe zwei Lernmethoden",
+          "Erkläre, warum sie helfen",
+          "Schließe mit einer Empfehlung",
+        ],
+      },
+    ],
+    formalLetter: [
+      {
+        title: "Ein formeller Beschwerdebrief",
+        subtitle: "Reagiere höflich auf ein Problem mit einem Service.",
+        prompt:
+          "Du hast an einem Kurs teilgenommen, aber mehrere Leistungen entsprachen nicht der Beschreibung. Schreibe einen formellen Beschwerdebrief.",
+        bullets: [
+          "Beschreibe das Problem sachlich",
+          "Erkläre, welche Folgen es hatte",
+          "Fordere eine passende Lösung",
+        ],
+      },
+      {
+        title: "Ein formeller Antrag",
+        subtitle: "Bitte um Informationen oder eine Ausnahme.",
+        prompt:
+          "Du möchtest an einem Programm teilnehmen und brauchst zusätzliche Informationen. Schreibe einen formellen Brief an die Organisation.",
+        bullets: [
+          "Stelle dich kurz vor",
+          "Erkläre dein Anliegen",
+          "Bitte um eine konkrete Antwort",
+        ],
+      },
+    ],
+    essay: [
+      {
+        title: "Eine Erörterung über Online-Lernen",
+        subtitle: "Diskutiere Vor- und Nachteile mit Beispielen.",
+        prompt:
+          "Viele Menschen lernen heute online statt in einem Klassenzimmer. Schreibe eine Erörterung zu diesem Thema.",
+        bullets: ["Nenne Vorteile", "Nenne Nachteile", "Begründe deine eigene Meinung"],
+      },
+      {
+        title: "Eine Erörterung über Stadtleben",
+        subtitle: "Vergleiche verschiedene Lebensweisen.",
+        prompt:
+          "Manche Menschen möchten in einer Großstadt leben, andere lieber in einer kleineren Gemeinde. Schreibe eine begründete Erörterung.",
+        bullets: ["Vergleiche beide Möglichkeiten", "Gib Beispiele", "Formuliere ein klares Fazit"],
+      },
+    ],
+    review: [
+      {
+        title: "Eine Rezension über ein Café",
+        subtitle: "Bewerte einen Ort für andere Besucher.",
+        prompt: "Schreibe eine Rezension über ein Café, das du kürzlich besucht hast.",
+        bullets: [
+          "Beschreibe Atmosphäre und Angebot",
+          "Bewerte den Service",
+          "Erkläre, wem du den Ort empfehlen würdest",
+        ],
+      },
+      {
+        title: "Eine Rezension über eine App",
+        subtitle: "Beurteile eine App aus deiner Erfahrung.",
+        prompt:
+          "Schreibe eine Rezension über eine App, die dir beim Lernen oder Organisieren hilft.",
+        bullets: [
+          "Beschreibe die wichtigsten Funktionen",
+          "Nenne einen Vorteil und einen Nachteil",
+          "Gib eine Empfehlung",
+        ],
+      },
+    ],
+    report: [
+      {
+        title: "Ein Bericht über eine Veranstaltung",
+        subtitle: "Fasse Ergebnisse für eine Gruppe zusammen.",
+        prompt:
+          "Dein Kurs hat eine Veranstaltung organisiert. Schreibe einen Bericht für die Kursleitung.",
+        bullets: [
+          "Beschreibe Ziel und Ablauf",
+          "Bewerte, was gut funktioniert hat",
+          "Schlage Verbesserungen vor",
+        ],
+      },
+      {
+        title: "Ein Bericht über Arbeitsbedingungen",
+        subtitle: "Analysiere eine Situation und mache Vorschläge.",
+        prompt:
+          "In deiner Firma wurde eine Umfrage zur Zufriedenheit am Arbeitsplatz durchgeführt. Schreibe einen Bericht für das Management.",
+        bullets: [
+          "Fasse wichtige Ergebnisse zusammen",
+          "Erkläre mögliche Ursachen",
+          "Empfiehl konkrete Maßnahmen",
+        ],
+      },
+    ],
+    chart: [
+      {
+        title: "Eine Grafikbeschreibung zum Medienkonsum",
+        subtitle: "Beschreibe Daten sachlich und strukturiert.",
+        prompt:
+          "Beschreibe eine Grafik zum Medienkonsum verschiedener Altersgruppen in Deutschland.",
+        bullets: [
+          "Nenne die wichtigsten Tendenzen",
+          "Vergleiche zwei Gruppen",
+          "Ziehe ein kurzes Fazit",
+        ],
+      },
+      {
+        title: "Eine Grafikbeschreibung zur Mobilität",
+        subtitle: "Analysiere Veränderungen über mehrere Jahre.",
+        prompt:
+          "Beschreibe eine Grafik zur Nutzung von Fahrrad, Auto und öffentlichen Verkehrsmitteln.",
+        bullets: [
+          "Beschreibe die auffälligsten Werte",
+          "Erkläre mögliche Gründe",
+          "Vergleiche die Entwicklungen",
+        ],
+      },
+    ],
+    process: [
+      {
+        title: "Eine Prozessbeschreibung zum Recycling",
+        subtitle: "Erkläre einen Ablauf Schritt für Schritt.",
+        prompt:
+          "Beschreibe einen Prozess, bei dem Papier gesammelt, sortiert und wiederverwertet wird.",
+        bullets: [
+          "Nenne die einzelnen Schritte",
+          "Verwende passende Reihenfolge-Wörter",
+          "Fasse das Ergebnis zusammen",
+        ],
+      },
+    ],
+    proposal: [
+      {
+        title: "Ein Vorschlag für bessere Teamarbeit",
+        subtitle: "Mache konkrete Empfehlungen für ein Unternehmen.",
+        prompt:
+          "Dein Unternehmen möchte die Zusammenarbeit im Team verbessern. Schreibe einen Vorschlag für die Geschäftsleitung.",
+        bullets: [
+          "Beschreibe die aktuelle Situation",
+          "Schlage zwei Maßnahmen vor",
+          "Erkläre den erwarteten Nutzen",
+        ],
+      },
+    ],
+    coverLetter: [
+      {
+        title: "Eine Bewerbung für ein Praktikum",
+        subtitle: "Bewirb dich überzeugend und professionell.",
+        prompt:
+          "Du bewirbst dich für ein Praktikum in einem internationalen Unternehmen. Schreibe ein Bewerbungsschreiben.",
+        bullets: [
+          "Erkläre, warum dich die Stelle interessiert",
+          "Beschreibe passende Erfahrungen",
+          "Bitte um ein Vorstellungsgespräch",
+        ],
+      },
+    ],
+    description: [
+      {
+        title: "Eine Beschreibung einer besonderen Person",
+        subtitle: "Beschreibe Wirkung, Charakter und Bedeutung.",
+        prompt: "Beschreibe eine Person, die dich beeindruckt oder beeinflusst hat.",
+        bullets: [
+          "Beschreibe die Person",
+          "Erkläre, was du von ihr gelernt hast",
+          "Zeige, warum sie dir wichtig ist",
+        ],
+      },
+    ],
+    opinion: [
+      {
+        title: "Ein Meinungstext über Traditionen",
+        subtitle: "Begründe deine Meinung mit Beispielen.",
+        prompt:
+          "Sollte man alte Traditionen bewahren oder sich stärker auf Neues konzentrieren? Schreibe deine Meinung.",
+        bullets: [
+          "Nenne deine Position",
+          "Gib Gründe und Beispiele",
+          "Gehe kurz auf eine Gegenmeinung ein",
+        ],
+      },
+    ],
+    letter: [
+      {
+        title: "Ein persönlicher Brief des Dankes",
+        subtitle: "Schreibe an jemanden, dem du lange danken wolltest.",
+        prompt:
+          "Schreibe einen persönlichen Brief an eine Person, die dir geholfen hat und der du nie richtig gedankt hast.",
+        bullets: [
+          "Erinnere an die Situation",
+          "Erkläre, warum die Hilfe wichtig war",
+          "Drücke deinen Dank aus",
+        ],
+      },
+    ],
+  },
+  fr: {
+    email: [
+      {
+        title: "Un e-mail au sujet d’un cadeau",
+        subtitle: "Tu as acheté un cadeau et tu écris à une amie.",
+        prompt: "Hier, tu as acheté un cadeau. Écris un e-mail à ton amie Camille.",
+        bullets: [
+          "Dis pour qui tu as acheté le cadeau",
+          "Décris le cadeau",
+          "Explique pourquoi tu l’as choisi",
+        ],
+      },
+      {
+        title: "Un e-mail au sujet d’une nouvelle activité",
+        subtitle: "Tu participes depuis peu à une activité.",
+        prompt:
+          "Depuis un mois, tu participes à une nouvelle activité. Écris un e-mail à ton ami Lucas.",
+        bullets: [
+          "Présente l’activité",
+          "Explique pourquoi tu t’es inscrit",
+          "Propose à Lucas de venir essayer",
+        ],
+      },
+      {
+        title: "Une invitation par e-mail",
+        subtitle: "Tu veux inviter quelqu’un à une sortie.",
+        prompt:
+          "Tu as une place en plus pour une sortie ce week-end. Écris un e-mail à ton amie Inès.",
+        bullets: ["Invite Inès", "Décris la sortie", "Propose une heure et un lieu de rendez-vous"],
+      },
+    ],
+    story: [
+      {
+        title: "Un récit avec une surprise",
+        subtitle: "Raconte une journée qui change brusquement.",
+        prompt:
+          "Écris un court récit sur une journée qui commence normalement et se termine par une surprise.",
+        bullets: [
+          "Présente la situation au début",
+          "Explique ce qui change soudainement",
+          "Donne une fin claire",
+        ],
+      },
+      {
+        title: "Un récit sur une mauvaise porte",
+        subtitle: "Quelqu’un entre dans un lieu inattendu.",
+        prompt:
+          "Écris un court récit dans lequel une personne ouvre une porte et comprend qu’elle n’est pas au bon endroit.",
+        bullets: [
+          "Décris le lieu",
+          "Montre la réaction du personnage",
+          "Explique comment la situation se termine",
+        ],
+      },
+    ],
+    article: [
+      {
+        title: "Un article sur les loisirs",
+        subtitle: "Écris pour le site d’un lycée ou d’un cours.",
+        prompt: "Écris un article sur les façons utiles de passer son temps libre.",
+        bullets: [
+          "Donne deux exemples",
+          "Explique les avantages et les limites",
+          "Termine par un conseil aux lecteurs",
+        ],
+      },
+      {
+        title: "Un article sur l’apprentissage",
+        subtitle: "Donne des conseils pratiques à d’autres apprenants.",
+        prompt:
+          "Écris un article avec des conseils pour pratiquer une langue étrangère au quotidien.",
+        bullets: [
+          "Présente deux méthodes",
+          "Explique pourquoi elles sont efficaces",
+          "Termine par une recommandation",
+        ],
+      },
+    ],
+    formalLetter: [
+      {
+        title: "Une lettre formelle de réclamation",
+        subtitle: "Réagis poliment à un problème de service.",
+        prompt:
+          "Tu as suivi un cours, mais plusieurs services ne correspondaient pas à la description. Écris une lettre formelle de réclamation.",
+        bullets: [
+          "Décris le problème précisément",
+          "Explique les conséquences",
+          "Demande une solution concrète",
+        ],
+      },
+      {
+        title: "Une lettre formelle de demande",
+        subtitle: "Demande des informations ou une exception.",
+        prompt:
+          "Tu veux participer à un programme et tu as besoin d’informations supplémentaires. Écris une lettre formelle à l’organisation.",
+        bullets: ["Présente-toi brièvement", "Explique ta demande", "Demande une réponse précise"],
+      },
+    ],
+    essay: [
+      {
+        title: "Un essai sur l’apprentissage en ligne",
+        subtitle: "Discute les avantages et les limites avec des exemples.",
+        prompt:
+          "Aujourd’hui, beaucoup de personnes apprennent en ligne plutôt qu’en classe. Rédige un essai argumenté sur ce sujet.",
+        bullets: [
+          "Présente les avantages",
+          "Présente les inconvénients",
+          "Donne ton opinion personnelle",
+        ],
+      },
+      {
+        title: "Un essai sur la vie en ville",
+        subtitle: "Compare plusieurs modes de vie.",
+        prompt:
+          "Certaines personnes préfèrent vivre dans une grande ville, d’autres dans une commune plus petite. Rédige un essai argumenté.",
+        bullets: [
+          "Compare les deux possibilités",
+          "Donne des exemples",
+          "Formule une conclusion claire",
+        ],
+      },
+    ],
+    review: [
+      {
+        title: "Une critique d’un café",
+        subtitle: "Évalue un lieu pour de futurs clients.",
+        prompt: "Écris une critique d’un café que tu as visité récemment.",
+        bullets: [
+          "Décris l’ambiance et l’offre",
+          "Évalue le service",
+          "Explique à qui tu recommanderais ce lieu",
+        ],
+      },
+      {
+        title: "Une critique d’une application",
+        subtitle: "Donne ton avis à partir de ton expérience.",
+        prompt: "Écris une critique d’une application qui t’aide à apprendre ou à t’organiser.",
+        bullets: [
+          "Décris les fonctions principales",
+          "Donne un avantage et un inconvénient",
+          "Formule une recommandation",
+        ],
+      },
+    ],
+    report: [
+      {
+        title: "Un rapport sur un événement",
+        subtitle: "Résume les résultats pour un groupe.",
+        prompt: "Ton cours a organisé un événement. Rédige un rapport pour la direction du cours.",
+        bullets: [
+          "Décris l’objectif et le déroulement",
+          "Évalue ce qui a bien fonctionné",
+          "Propose des améliorations",
+        ],
+      },
+      {
+        title: "Un rapport sur les conditions de travail",
+        subtitle: "Analyse une situation et propose des mesures.",
+        prompt:
+          "Dans ton entreprise, une enquête a été menée sur la satisfaction au travail. Rédige un rapport pour la direction.",
+        bullets: [
+          "Résume les résultats importants",
+          "Explique les causes possibles",
+          "Recommande des mesures concrètes",
+        ],
+      },
+    ],
+    chart: [
+      {
+        title: "Une analyse de graphique sur les médias",
+        subtitle: "Décris des données de manière structurée.",
+        prompt:
+          "Analyse un graphique sur l’utilisation des médias selon les groupes d’âge en France.",
+        bullets: [
+          "Présente les tendances principales",
+          "Compare deux groupes",
+          "Ajoute une courte conclusion",
+        ],
+      },
+      {
+        title: "Une analyse de graphique sur les transports",
+        subtitle: "Analyse des évolutions sur plusieurs années.",
+        prompt:
+          "Analyse un graphique sur l’utilisation du vélo, de la voiture et des transports publics.",
+        bullets: [
+          "Décris les chiffres les plus importants",
+          "Explique des raisons possibles",
+          "Compare les évolutions",
+        ],
+      },
+    ],
+    process: [
+      {
+        title: "Une description de processus sur le recyclage",
+        subtitle: "Explique un déroulement étape par étape.",
+        prompt: "Décris un processus dans lequel le papier est collecté, trié puis recyclé.",
+        bullets: [
+          "Présente les étapes dans l’ordre",
+          "Utilise des connecteurs chronologiques",
+          "Résume le résultat final",
+        ],
+      },
+    ],
+    proposal: [
+      {
+        title: "Une proposition pour améliorer le travail d’équipe",
+        subtitle: "Fais des recommandations concrètes à une entreprise.",
+        prompt:
+          "Ton entreprise veut améliorer la collaboration dans les équipes. Rédige une proposition pour la direction.",
+        bullets: [
+          "Décris la situation actuelle",
+          "Propose deux mesures",
+          "Explique les bénéfices attendus",
+        ],
+      },
+    ],
+    coverLetter: [
+      {
+        title: "Une lettre de motivation pour un stage",
+        subtitle: "Présente ta candidature de manière professionnelle.",
+        prompt:
+          "Tu poses ta candidature pour un stage dans une entreprise internationale. Rédige une lettre de motivation.",
+        bullets: [
+          "Explique pourquoi le poste t’intéresse",
+          "Présente des expériences pertinentes",
+          "Demande un entretien",
+        ],
+      },
+    ],
+    description: [
+      {
+        title: "La description d’une personne importante",
+        subtitle: "Décris son caractère, son influence et son importance.",
+        prompt: "Décris une personne qui t’a impressionné ou influencé.",
+        bullets: [
+          "Présente cette personne",
+          "Explique ce que tu as appris d’elle",
+          "Montre pourquoi elle compte pour toi",
+        ],
+      },
+    ],
+    opinion: [
+      {
+        title: "Un texte d’opinion sur les traditions",
+        subtitle: "Défends ton avis avec des exemples.",
+        prompt:
+          "Faut-il préserver les anciennes traditions ou se concentrer davantage sur la nouveauté ? Rédige ton opinion.",
+        bullets: [
+          "Présente ta position",
+          "Donne des raisons et des exemples",
+          "Réponds brièvement à un avis contraire",
+        ],
+      },
+    ],
+    letter: [
+      {
+        title: "Une lettre personnelle de remerciement",
+        subtitle: "Écris à quelqu’un que tu voulais remercier depuis longtemps.",
+        prompt:
+          "Écris une lettre personnelle à une personne qui t’a aidé et que tu n’as jamais vraiment remerciée.",
+        bullets: [
+          "Rappelle la situation",
+          "Explique pourquoi cette aide était importante",
+          "Exprime ta gratitude",
+        ],
+      },
+    ],
+  },
+};
 
 function adaptTask(task: Task, level: WorkbookLevel, lang: TaskLanguage): Task {
   if (lang === "en") return task;
-  const target = targetName[lang];
-  const section = sectionLabelsByLanguage[lang][level];
-  const kind = taskKind(task);
-  const minimum = wordMinimum(task);
-  const sourceBullets = task.bullets.length > 0 ? task.bullets : [task.subtitle, task.prompt];
 
-  if (lang === "de") {
-    return {
-      ...task,
-      group: section,
-      title: `${section}: ${kind}`,
-      subtitle: `Eine ${target}-Schreibaufgabe im Stil von ${section}.`,
-      prompt: `Schreibe auf Deutsch. Bearbeite eine realistische Aufgabe aus ${section}: ${task.subtitle}`,
-      bullets: sourceBullets.map((b) => `Gehe darauf ein: ${b}`),
-      wordCount: `Schreibe mindestens ${minimum} Wörter auf Deutsch.`,
-      badge: task.badge ?? section,
-    };
-  }
+  const type = localizedTaskType(task);
+  const section = sectionLabelsByLanguage[lang][level];
+  const template = pickTemplate(localizedTemplates[lang][type], task.id);
+  const group = localizedGroups[lang][type];
 
   return {
     ...task,
-    group: section,
-    title: `${section} : ${kind}`,
-    subtitle: `Un exercice d’écriture en ${target} au format ${section}.`,
-    prompt: `Écris en français. Réponds à une tâche réaliste de type ${section} : ${task.subtitle}`,
-    bullets: sourceBullets.map((b) => `Traite ce point : ${b}`),
-    wordCount: `Écris au moins ${minimum} mots en français.`,
-    badge: task.badge ?? section,
+    group,
+    title: `${section}: ${template.title}`,
+    subtitle: template.subtitle,
+    prompt: template.prompt,
+    bullets: template.bullets,
+    wordCount: wordCountsByLanguage[lang][level],
+    badge: template.badge ?? group,
   };
 }
 
