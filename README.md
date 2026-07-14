@@ -22,7 +22,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Fill `.env` with Supabase values and `AI_GATEWAY_API_KEY` before using AI feedback features.
+Fill `.env` with Supabase values and `OPENAI_API_KEY` before using AI feedback features.
 
 ## Backend automation
 
@@ -58,7 +58,8 @@ The app runtime also needs these environment variables in Vercel:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY` for server-side account deletion only
-- `AI_GATEWAY_API_KEY` for AI checks/translations/feedback
+- `OPENAI_API_KEY` for AI checks/translations/feedback
+- `OPENAI_MODEL` optionally overrides the default model (`gpt-4o-mini`)
 
 ## Checks
 

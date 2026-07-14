@@ -58,18 +58,28 @@ const FALLBACK_MAP: { keywords: string[]; url: string }[] = [
   { keywords: ["irregular verb"], url: `${PEG_BASE}/irregularverbs/list.html` },
 ];
 
-async function callGateway(prompt: string, key: string): Promise<string> {
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+type OpenAiMessage = { role: "system" | "user" | "assistant"; content: string };
+
+function getOpenAiKey() {
+  return process.env.OPENAI_API_KEY;
+}
+
+async function callOpenAi(messages: OpenAiMessage[], key: string): Promise<string> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-3-flash-preview",
-      messages: [{ role: "user", content: prompt }],
+      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+      messages,
     }),
   });
-  if (!res.ok) throw new Error(`Gateway error ${res.status}`);
+  if (!res.ok) throw new Error(`OpenAI error ${res.status}`);
   const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   return json.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
+async function callModel(prompt: string, key: string): Promise<string> {
+  return callOpenAi([{ role: "user", content: prompt }], key);
 }
 
 async function resolveRuleUrl(rawUrl: string, why: string, key: string): Promise<string> {
@@ -80,7 +90,7 @@ async function resolveRuleUrl(rawUrl: string, why: string, key: string): Promise
   }
   try {
     const prompt = `Return ONLY a valid URL to the single most relevant page on englishpage.com for this English grammar or style issue. The URL must start with ${PEG_BASE}. No explanation, no punctuation, just the URL.\n\nIssue: ${why}`;
-    const content = await callGateway(prompt, key);
+    const content = await callModel(prompt, key);
     const match = content.match(/https?:\/\/\S+/);
     const url = match?.[0]?.replace(/[.,;)\]]+$/, "") ?? "";
     if (url.startsWith(PEG_BASE)) return url;
@@ -96,8 +106,8 @@ export const getCorrectionCards = createServerFn({ method: "POST" })
     return { text: data.text.slice(0, 5000), lang: data.lang ?? "en" };
   })
   .handler(async ({ data }): Promise<CorrectionCardsResult> => {
-    const key = process.env.AI_GATEWAY_API_KEY ?? process.env.LOVABLE_API_KEY;
-    if (!key) return { ok: false, error: "Missing AI gateway API key" };
+    const key = getOpenAiKey();
+    if (!key) return { ok: false, error: "Missing OpenAI API key" };
 
     const prompt = `You are a precise English writing coach. Analyse the text below and return ONLY a valid JSON array. No explanation, no preamble, no markdown, no code blocks — raw JSON only.
 
@@ -115,7 +125,7 @@ Text:
 ${data.text}`;
 
     try {
-      let content = await callGateway(prompt, key);
+      let content = await callModel(prompt, key);
       content = content
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/, "")
@@ -166,8 +176,8 @@ export const checkWriting = createServerFn({ method: "POST" })
     return { text: data.text.slice(0, 5000), lang: data.lang ?? "en" };
   })
   .handler(async ({ data }): Promise<CheckResult> => {
-    const key = process.env.AI_GATEWAY_API_KEY ?? process.env.LOVABLE_API_KEY;
-    if (!key) return { ok: false, error: "Missing AI gateway API key" };
+    const key = getOpenAiKey();
+    if (!key) return { ok: false, error: "Missing OpenAI API key" };
 
     const prompt = `You are a precise English writing coach. Analyse the text below and return ONLY a valid JSON array. No explanation, no preamble, no markdown formatting, no code blocks — raw JSON only.
 
@@ -181,26 +191,7 @@ Text to analyse:
 ${data.text}`;
 
     try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-
-      if (!res.ok) {
-        return { ok: false, error: `Gateway error ${res.status}` };
-      }
-
-      const json = (await res.json()) as {
-        choices?: { message?: { content?: string } }[];
-      };
-      let content = json.choices?.[0]?.message?.content?.trim() ?? "";
+      let content = await callModel(prompt, key);
       content = content
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/, "")
@@ -239,8 +230,8 @@ export const scoreRelevance = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }): Promise<ScoreResult> => {
-    const key = process.env.AI_GATEWAY_API_KEY ?? process.env.LOVABLE_API_KEY;
-    if (!key) return { ok: false, error: "Missing AI gateway API key" };
+    const key = getOpenAiKey();
+    if (!key) return { ok: false, error: "Missing OpenAI API key" };
 
     const prompt = `Read the following writing task prompt and the user's response. Score how relevant the response is to the task on a scale of 0 to 5, where 5 means the response fully addresses all parts of the task and 0 means it is completely off-topic.
 
@@ -253,24 +244,7 @@ User's response:
 ${data.text}`;
 
     try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-
-      if (!res.ok) return { ok: false, error: `Gateway error ${res.status}` };
-
-      const json = (await res.json()) as {
-        choices?: { message?: { content?: string } }[];
-      };
-      const content = (json.choices?.[0]?.message?.content ?? "").trim();
+      const content = await callModel(prompt, key);
       const match = content.match(/[0-5]/);
       if (!match) return { ok: false, error: "Could not parse score" };
       const score = parseInt(match[0], 10);
@@ -291,8 +265,8 @@ export const scoreCefr = createServerFn({ method: "POST" })
     return { text: data.text.slice(0, 5000), lang: data.lang ?? "en" };
   })
   .handler(async ({ data }): Promise<CefrResult> => {
-    const key = process.env.AI_GATEWAY_API_KEY ?? process.env.LOVABLE_API_KEY;
-    if (!key) return { ok: false, error: "Missing AI gateway API key" };
+    const key = getOpenAiKey();
+    if (!key) return { ok: false, error: "Missing OpenAI API key" };
 
     const langN = langName(data.lang);
     const prompt = `You are a language assessor for ${langN}. Based on the writing sample below, estimate the writer's CEFR level as a decimal number on a scale from 1.0 to 6.0, where:
@@ -306,23 +280,7 @@ Text:
 ${data.text}`;
 
     try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-
-      if (!res.ok) return { ok: false, error: `Gateway error ${res.status}` };
-      const json = (await res.json()) as {
-        choices?: { message?: { content?: string } }[];
-      };
-      const content = (json.choices?.[0]?.message?.content ?? "").trim();
+      const content = await callModel(prompt, key);
       const match = content.match(/\d+(?:\.\d+)?/);
       if (!match) return { ok: false, error: "Could not parse level" };
       let level = parseFloat(match[0]);
@@ -351,21 +309,11 @@ export const chatWithCoach = createServerFn({ method: "POST" })
     return { system: data.system.slice(0, 8000), messages, lang: data.lang ?? "en" };
   })
   .handler(async ({ data }): Promise<ChatResult> => {
-    const key = process.env.AI_GATEWAY_API_KEY ?? process.env.LOVABLE_API_KEY;
-    if (!key) return { ok: false, error: "Missing AI gateway API key" };
+    const key = getOpenAiKey();
+    if (!key) return { ok: false, error: "Missing OpenAI API key" };
     try {
       const system = data.system + langDirective(data.lang);
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [{ role: "system", content: system }, ...data.messages],
-        }),
-      });
-      if (!res.ok) return { ok: false, error: `Gateway error ${res.status}` };
-      const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-      const reply = json.choices?.[0]?.message?.content?.trim() ?? "";
+      const reply = await callOpenAi([{ role: "system", content: system }, ...data.messages], key);
       return { ok: true, reply };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Unknown error" };
@@ -386,8 +334,8 @@ export const getAiFeedback = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }): Promise<AiFeedbackResult> => {
-    const key = process.env.AI_GATEWAY_API_KEY ?? process.env.LOVABLE_API_KEY;
-    if (!key) return { ok: false, error: "Missing AI gateway API key" };
+    const key = getOpenAiKey();
+    if (!key) return { ok: false, error: "Missing OpenAI API key" };
 
     const langN = langName(data.lang);
     const headings =
@@ -433,7 +381,7 @@ User's writing:
 ${data.text}`;
 
     try {
-      const raw = await callGateway(prompt, key);
+      const raw = await callModel(prompt, key);
       return { ok: true, raw };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Unknown error" };

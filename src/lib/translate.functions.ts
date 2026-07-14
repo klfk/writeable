@@ -8,6 +8,20 @@ const LANG_NAMES: Record<string, string> = {
   fr: "French",
 };
 
+async function callOpenAi(prompt: string, key: string): Promise<string> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenAI error ${res.status}`);
+  const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  return json.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
 export const translateStrings = createServerFn({ method: "POST" })
   .inputValidator((data: { strings: string[]; targetLang: string }) => {
     if (!data || !Array.isArray(data.strings) || typeof data.targetLang !== "string") {
@@ -18,8 +32,8 @@ export const translateStrings = createServerFn({ method: "POST" })
     return { strings, targetLang };
   })
   .handler(async ({ data }): Promise<TranslateResult> => {
-    const key = process.env.AI_GATEWAY_API_KEY ?? process.env.LOVABLE_API_KEY;
-    if (!key) return { ok: false, error: "Missing AI gateway API key" };
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) return { ok: false, error: "Missing OpenAI API key" };
     if (data.targetLang === "en" || data.strings.length === 0) {
       return { ok: true, translations: data.strings };
     }
@@ -37,17 +51,7 @@ Strings:
 ${numbered}`;
 
     try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-      if (!res.ok) return { ok: false, error: `Gateway error ${res.status}` };
-      const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-      let content = json.choices?.[0]?.message?.content?.trim() ?? "";
+      let content = await callOpenAi(prompt, key);
       content = content
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/, "")
