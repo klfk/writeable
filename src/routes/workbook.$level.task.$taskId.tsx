@@ -251,12 +251,8 @@ function TaskDetailPage() {
   const aiChatOn = isPluginEnabled("ai-chat");
   const aiFeedbackOn = isPluginEnabled("ai-feedback");
   const vocabularyBuilderOn = isPluginEnabled("vocabulary-builder");
-  const vimSupportOn = isPluginEnabled("vim-support");
   const cardsNeeded =
     correctionCardsOn || rewriteChallengeOn || beforeAfterOn || vocabularyBuilderOn;
-  const [vimMode, setVimMode] = useState<"insert" | "normal">("insert");
-  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
-  const pendingVimKeyRef = useRef<string | null>(null);
   const correctionProgress = getCorrectionProgress({
     inlineOn,
     cardsNeeded,
@@ -457,80 +453,6 @@ function TaskDetailPage() {
     };
   }, []);
 
-  function setTextareaSelection(start: number, end = start) {
-    window.requestAnimationFrame(() => {
-      textAreaRef.current?.setSelectionRange(start, end);
-    });
-  }
-
-  function replaceTextareaRange(start: number, end: number, value: string) {
-    const next = text.slice(0, start) + value + text.slice(end);
-    setText(next);
-    setTextareaSelection(start + value.length);
-  }
-
-  function handleVimKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (!vimSupportOn) return;
-    const el = event.currentTarget;
-    const cursor = el.selectionStart ?? 0;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      pendingVimKeyRef.current = null;
-      setVimMode("normal");
-      return;
-    }
-    if (vimMode === "insert") return;
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    event.preventDefault();
-    const key = event.key;
-    const lineStart = text.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
-    const lineEndRaw = text.indexOf("\n", cursor);
-    const lineEnd = lineEndRaw === -1 ? text.length : lineEndRaw;
-    const col = cursor - lineStart;
-    const prev = pendingVimKeyRef.current;
-    pendingVimKeyRef.current = null;
-
-    if (prev === "d" && key === "d") {
-      const removeEnd = lineEndRaw === -1 ? lineEnd : lineEnd + 1;
-      replaceTextareaRange(lineStart, removeEnd, "");
-      return;
-    }
-    if (key === "d") {
-      pendingVimKeyRef.current = "d";
-      return;
-    }
-    if (key === "i") {
-      setVimMode("insert");
-      return;
-    }
-    if (key === "a") {
-      setVimMode("insert");
-      setTextareaSelection(Math.min(text.length, cursor + 1));
-      return;
-    }
-    if (key === "o") {
-      setVimMode("insert");
-      replaceTextareaRange(lineEnd, lineEnd, "\n");
-      return;
-    }
-    if (key === "x" && cursor < text.length) {
-      replaceTextareaRange(cursor, cursor + 1, "");
-      return;
-    }
-    if (key === "h") setTextareaSelection(Math.max(0, cursor - 1));
-    if (key === "l") setTextareaSelection(Math.min(text.length, cursor + 1));
-    if (key === "j") {
-      const nextLineEndRaw = text.indexOf("\n", lineEnd + 1);
-      const nextLineEnd = nextLineEndRaw === -1 ? text.length : nextLineEndRaw;
-      setTextareaSelection(Math.min(lineEnd + 1 + col, nextLineEnd));
-    }
-    if (key === "k") {
-      const prevLineEnd = Math.max(0, lineStart - 1);
-      const prevLineStart = text.lastIndexOf("\n", Math.max(0, prevLineEnd - 1)) + 1;
-      setTextareaSelection(Math.min(prevLineStart + col, prevLineEnd));
-    }
-  }
-
   async function onCheck(textOverride?: string) {
     const textToCheck = textOverride ?? text;
     if (textToCheck.trim().length === 0) return;
@@ -688,10 +610,8 @@ function TaskDetailPage() {
                   />
                 ) : (
                   <textarea
-                    ref={textAreaRef}
                     value={text}
                     onChange={(e) => setText(e.target.value)}
-                    onKeyDown={handleVimKeyDown}
                     placeholder={t("Write your text here.")}
                     className="block min-h-[320px] w-full resize-y bg-card p-4 text-sm leading-6 text-foreground outline-none"
                   />
@@ -707,14 +627,6 @@ function TaskDetailPage() {
                 </div>
               </div>
               <CorrectionProgressBar progress={correctionProgress} />
-              {vimSupportOn && (
-                <div className="mt-2 flex items-center justify-between border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  <span>{t("Vim mode")}</span>
-                  <span className="font-mono font-semibold uppercase" style={{ color: "#2a9d8f" }}>
-                    {vimMode}
-                  </span>
-                </div>
-              )}
 
               {showHighlights && (
                 <div className="mt-3">
@@ -794,7 +706,6 @@ function TaskDetailPage() {
               taskId={activeTaskId}
             />
           )}
-          {vimSupportOn && <VimSupportCard mode={vimMode} />}
         </aside>
       </div>
     </div>
@@ -924,24 +835,6 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
       </button>
       {open && <div className="px-4 py-4">{children}</div>}
     </div>
-  );
-}
-
-function VimSupportCard({ mode }: { mode: "insert" | "normal" }) {
-  const { t } = useLang();
-  return (
-    <Card title="Vim Support">
-      <div className="space-y-2 text-sm text-foreground">
-        <p>
-          {t("Current mode")}: <span className="font-mono font-semibold uppercase">{mode}</span>
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {t(
-            "Esc enters Normal mode. Use i/a/o for Insert, hjkl to move, x to delete, and dd to delete the current line.",
-          )}
-        </p>
-      </div>
-    </Card>
   );
 }
 

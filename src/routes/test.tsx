@@ -36,7 +36,6 @@ function prepareFullCorrectionTest() {
     "task-timer": true,
     "your-progress": true,
     "vocabulary-builder": true,
-    "vim-support": true,
   };
 
   const allDisplaySettings = {

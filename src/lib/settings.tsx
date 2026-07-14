@@ -17,8 +17,7 @@ export type PluginId =
   | "ai-feedback"
   | "task-timer"
   | "your-progress"
-  | "vocabulary-builder"
-  | "vim-support";
+  | "vocabulary-builder";
 
 export type Plugin = {
   id: PluginId;
@@ -109,14 +108,6 @@ export const defaultPlugins: Plugin[] = [
     description:
       "Suggests stronger, more precise word choices and saves new vocabulary to your personal word bank.",
     stars: 4,
-    enabled: false,
-  },
-  {
-    id: "vim-support",
-    title: "Vim Support",
-    description:
-      "Adds a lightweight Vim-style editing mode to the writing box: Esc for Normal mode, i/a/o for Insert, hjkl movement, x delete and dd delete-line.",
-    stars: 3,
     enabled: false,
   },
 ];
