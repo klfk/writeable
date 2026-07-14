@@ -1113,9 +1113,13 @@ function CorrectionCardsBlock({
   showSuggestions: boolean;
 }) {
   const { t } = useLang();
+  const [showAllCards, setShowAllCards] = useState(false);
   const count = state.status === "done" ? state.cards.length : 0;
   const countLabel =
     state.status === "done" ? `${count} ${t(count === 1 ? "issue" : "issues")}` : "";
+  const visibleCards =
+    state.status === "done" && !showAllCards ? state.cards.slice(0, 3) : state.cards;
+  const hiddenCardCount = state.status === "done" ? state.cards.length - visibleCards.length : 0;
 
   return (
     <div className="border bg-card" style={{ borderColor: "#e0e0e0", borderRadius: 4 }}>
@@ -1164,9 +1168,9 @@ function CorrectionCardsBlock({
       )}
 
       {state.status === "done" &&
-        state.cards.map((card, i) => {
+        visibleCards.map((card, i) => {
           const color = CARD_TYPE_COLORS[card.type];
-          const isLast = i === state.cards.length - 1;
+          const isLast = i === visibleCards.length - 1 && hiddenCardCount === 0;
           return (
             <CardRow
               key={i}
@@ -1177,6 +1181,21 @@ function CorrectionCardsBlock({
             />
           );
         })}
+
+      {state.status === "done" && state.cards.length > 3 && (
+        <div className="border-t px-4 py-3" style={{ borderColor: "#eeeeee" }}>
+          <button
+            type="button"
+            onClick={() => setShowAllCards((current) => !current)}
+            className="text-xs font-semibold underline underline-offset-2"
+            style={{ color: "#2a9d8f" }}
+          >
+            {showAllCards
+              ? t("Show fewer correction cards")
+              : `${t("Show all correction cards")} (${state.cards.length})`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
