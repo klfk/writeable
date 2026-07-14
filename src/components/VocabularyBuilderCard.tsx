@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bookmark, BookmarkCheck, Trash2, ChevronDown, ChevronLeft, ChevronUp } from "lucide-react";
 import type { CorrectionCard } from "@/lib/check.functions";
 import { T } from "@/lib/useAutoT";
@@ -13,6 +13,49 @@ export type VocabBankEntry = {
 };
 
 const BANK_KEY = "vocab_bank_v1";
+const MIN_TEXT_SUGGESTIONS = 3;
+
+const COMMON_WORDS = new Set([
+  "about",
+  "after",
+  "also",
+  "and",
+  "are",
+  "because",
+  "but",
+  "can",
+  "could",
+  "das",
+  "der",
+  "die",
+  "ein",
+  "eine",
+  "for",
+  "from",
+  "have",
+  "ich",
+  "ist",
+  "mit",
+  "not",
+  "pour",
+  "que",
+  "the",
+  "und",
+  "une",
+  "was",
+  "werden",
+  "will",
+  "with",
+  "you",
+]);
+
+type VocabSuggestion = {
+  id: string;
+  term: string;
+  suggestion: string;
+  note: string;
+  source: "correction" | "text";
+};
 
 function FoldIndicator({ open }: { open: boolean }) {
   const Icon = open ? ChevronDown : ChevronLeft;
@@ -49,12 +92,51 @@ function entryId(term: string, suggestion: string) {
   return `${term.toLowerCase().trim()}::${suggestion.toLowerCase().trim()}`;
 }
 
+function textSuggestionId(term: string) {
+  return entryId(term, term);
+}
+
+function buildTextSuggestions(
+  text: string,
+  takenIds: Set<string>,
+  limit: number,
+): VocabSuggestion[] {
+  if (limit <= 0) return [];
+
+  const counts = new Map<string, { term: string; count: number }>();
+  for (const match of text.matchAll(/[\p{L}][\p{L}'’-]{2,}/gu)) {
+    const term = match[0].replace(/[’']/g, "'");
+    const key = term.toLocaleLowerCase();
+    if (COMMON_WORDS.has(key) || takenIds.has(textSuggestionId(term))) continue;
+    const current = counts.get(key);
+    counts.set(key, { term: current?.term ?? term, count: (current?.count ?? 0) + 1 });
+  }
+
+  return [...counts.values()]
+    .sort(
+      (a, b) => b.count - a.count || b.term.length - a.term.length || a.term.localeCompare(b.term),
+    )
+    .slice(0, limit)
+    .map(({ term, count }) => ({
+      id: textSuggestionId(term),
+      term,
+      suggestion: term,
+      note:
+        count > 1
+          ? `You used this word ${count} times. Save it and practise using it in new sentences.`
+          : "Useful word from your text. Save it and practise using it in new sentences.",
+      source: "text",
+    }));
+}
+
 export function VocabularyBuilderCard({
   cards,
   taskId,
+  text = "",
 }: {
   cards: CorrectionCard[];
   taskId?: string;
+  text?: string;
 }) {
   const [bank, setBank] = useState<VocabBankEntry[]>([]);
   const [open, setOpen] = useState(true);
@@ -69,19 +151,37 @@ export function VocabularyBuilderCard({
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const vocabCards = cards.filter((c) => c.type === "vocabulary" && c.suggestion && c.original);
-
-  const savedIds = new Set(bank.map((e) => e.id));
-
-  const save = (card: CorrectionCard) => {
-    const id = entryId(card.original, card.suggestion);
-    if (savedIds.has(id)) return;
-    const next: VocabBankEntry[] = [
-      {
-        id,
+  const suggestions = useMemo(() => {
+    const correctionSuggestions: VocabSuggestion[] = cards
+      .filter((c) => c.type === "vocabulary" && c.suggestion && c.original)
+      .map((card) => ({
+        id: entryId(card.original, card.suggestion),
         term: card.original,
         suggestion: card.suggestion,
         note: card.why,
+        source: "correction",
+      }));
+
+    const takenIds = new Set(correctionSuggestions.map((suggestion) => suggestion.id));
+    const textSuggestions = buildTextSuggestions(
+      text,
+      takenIds,
+      Math.max(0, MIN_TEXT_SUGGESTIONS - correctionSuggestions.length),
+    );
+
+    return [...correctionSuggestions, ...textSuggestions];
+  }, [cards, text]);
+
+  const savedIds = new Set(bank.map((e) => e.id));
+
+  const save = (suggestion: VocabSuggestion) => {
+    if (savedIds.has(suggestion.id)) return;
+    const next: VocabBankEntry[] = [
+      {
+        id: suggestion.id,
+        term: suggestion.term,
+        suggestion: suggestion.suggestion,
+        note: suggestion.note,
         taskId,
         savedAt: new Date().toISOString(),
       },
@@ -122,9 +222,9 @@ export function VocabularyBuilderCard({
 
       {open && (
         <div className="px-4 py-4">
-          {vocabCards.length === 0 ? (
+          {suggestions.length === 0 ? (
             <p className="text-xs italic text-muted-foreground">
-              <T>Run a check to see suggested vocabulary upgrades.</T>
+              <T>Write a little more to see at least three vocabulary suggestions.</T>
             </p>
           ) : (
             <>
@@ -132,28 +232,39 @@ export function VocabularyBuilderCard({
                 <T>From this text</T>
               </div>
               <ul className="space-y-2">
-                {vocabCards.map((c, i) => {
-                  const id = entryId(c.original, c.suggestion);
-                  const saved = savedIds.has(id);
+                {suggestions.map((suggestion) => {
+                  const saved = savedIds.has(suggestion.id);
                   return (
                     <li
-                      key={i}
+                      key={suggestion.id}
                       className="flex items-start justify-between gap-2 border border-border/60 px-3 py-2"
                     >
                       <div className="min-w-0">
                         <div className="text-sm text-foreground">
-                          <span className="line-through text-muted-foreground">{c.original}</span>{" "}
-                          <span className="font-semibold" style={{ color: "#2a9d8f" }}>
-                            → {c.suggestion}
-                          </span>
+                          {suggestion.source === "correction" ? (
+                            <>
+                              <span className="line-through text-muted-foreground">
+                                {suggestion.term}
+                              </span>{" "}
+                              <span className="font-semibold" style={{ color: "#2a9d8f" }}>
+                                → {suggestion.suggestion}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="font-semibold" style={{ color: "#2a9d8f" }}>
+                              {suggestion.term}
+                            </span>
+                          )}
                         </div>
-                        {c.why && (
-                          <div className="mt-0.5 text-xs text-muted-foreground">{c.why}</div>
+                        {suggestion.note && (
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {suggestion.note}
+                          </div>
                         )}
                       </div>
                       <button
                         type="button"
-                        onClick={() => save(c)}
+                        onClick={() => save(suggestion)}
                         disabled={saved}
                         title={saved ? "Saved" : "Save to word bank"}
                         className={`shrink-0 rounded-sm p-1.5 ${

@@ -704,6 +704,7 @@ function TaskDetailPage() {
             <VocabularyBuilderCard
               cards={cards.status === "done" ? cards.cards : []}
               taskId={activeTaskId}
+              text={text}
             />
           )}
         </aside>
