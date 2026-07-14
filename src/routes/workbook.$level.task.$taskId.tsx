@@ -2072,7 +2072,7 @@ function FeedbackBlock({
                 whiteSpace: "pre-wrap",
               }}
             >
-              {p}
+              {renderInlineMarkdown(p)}
             </p>
           ))
         )}
