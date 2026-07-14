@@ -29,9 +29,7 @@ Fill `.env` with Supabase values and `AI_GATEWAY_API_KEY` before using AI feedba
 MCP connectors are configured in `.mcp.json` for:
 
 - Supabase, scoped to project `iiskizsngljnosnehbeu`
-- Cloudflare Docs
-- Cloudflare Workers Builds
-- Cloudflare Workers Observability
+- Vercel
 
 Supabase migrations live in `supabase/migrations/` and are applied by the GitHub Actions workflow in `.github/workflows/supabase-migrations.yml`.
 
@@ -40,7 +38,20 @@ Configure these in GitHub before running it:
 - Repository variable: `SUPABASE_PROJECT_ID`
 - Repository secrets: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`
 
-The app runtime also needs these environment variables in the hosting provider:
+The app is hosted on Vercel as project `writeable`.
+
+Production deployment:
+
+- `https://writeable-phi.vercel.app`
+- Intended custom domain: `writeable.ivanm.xyz`
+
+DNS still needs to point `writeable.ivanm.xyz` to Vercel:
+
+```txt
+A writeable 76.76.21.21
+```
+
+The app runtime also needs these environment variables in Vercel:
 
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
