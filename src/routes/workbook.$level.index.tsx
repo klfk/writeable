@@ -204,7 +204,7 @@ function TaskRow({ task, level }: { task: Task; level: WorkbookLevel }) {
   const tr = useTranslatedTask(task);
 
   return (
-    <li className="relative border-b border-border bg-card transition-colors duration-200 ease-out last:border-b-0 hover:bg-teal-soft focus-within:bg-teal-soft">
+    <li className="group relative border-b border-border bg-card transition-colors duration-300 ease-out last:border-b-0 hover:bg-teal-soft focus-within:bg-teal-soft">
       <Link
         to="/workbook/$level/task/$taskId"
         params={{ level, taskId: task.id }}
@@ -221,17 +221,21 @@ function TaskRow({ task, level }: { task: Task; level: WorkbookLevel }) {
               <div className="mt-0.5 text-xs text-muted-foreground">{tr.subtitle}</div>
             </div>
           </div>
-          <div className="mt-3 grid grid-rows-[1fr] opacity-100">
+          <div className="mt-1 grid grid-rows-[0fr] opacity-60 transition-all duration-300 ease-out group-hover:mt-3 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus-within:mt-3 group-focus-within:grid-rows-[1fr] group-focus-within:opacity-100 max-sm:mt-3 max-sm:grid-rows-[1fr] max-sm:opacity-100">
             <div className="overflow-hidden">
-              <p className="text-xs leading-relaxed text-foreground/80">{tr.prompt}</p>
+              <p className="text-xs leading-relaxed text-foreground/80 blur-[2px] transition-[filter] duration-300 group-hover:blur-0 group-focus-within:blur-0 max-sm:blur-0">
+                {tr.prompt}
+              </p>
               {tr.bullets.length > 0 && (
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-foreground/80">
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-foreground/80 blur-[2px] transition-[filter] duration-300 group-hover:blur-0 group-focus-within:blur-0 max-sm:blur-0">
                   {tr.bullets.map((b, i) => (
                     <li key={i}>{b}</li>
                   ))}
                 </ul>
               )}
-              <p className="mt-2 text-xs font-semibold text-foreground">{tr.wordCount}</p>
+              <p className="mt-2 text-xs font-semibold text-foreground blur-[2px] transition-[filter] duration-300 group-hover:blur-0 group-focus-within:blur-0 max-sm:blur-0">
+                {tr.wordCount}
+              </p>
             </div>
           </div>
         </div>
