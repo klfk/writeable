@@ -24,6 +24,24 @@ npm run dev
 
 Fill `.env` with Supabase values and `AI_GATEWAY_API_KEY` before using AI feedback features.
 
+## Backend automation
+
+Supabase migrations live in `supabase/migrations/` and are applied by the GitHub Actions workflow in `.github/workflows/supabase-migrations.yml`.
+
+Configure these in GitHub before running it:
+
+- Repository variable: `SUPABASE_PROJECT_ID`
+- Repository secrets: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`
+
+The app runtime also needs these environment variables in the hosting provider:
+
+- `SUPABASE_URL`
+- `SUPABASE_PUBLISHABLE_KEY`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` for server-side account deletion only
+- `AI_GATEWAY_API_KEY` for AI checks/translations/feedback
+
 ## Checks
 
 ```bash
